@@ -80,38 +80,48 @@ def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> 
     # Original sentence
     full = corrections[0].get("full_sentence", "") if corrections else ""
     if full:
-        lines.append(f'\n"{full}"')
+        lines.append(f'\n❌ {full}')
 
-    # Corrections list
+    # Corrected full sentence
+    corrected_full = corrections[0].get("corrected_full", "") if corrections else ""
+    if corrected_full:
+        lines.append(f'✅ {corrected_full}')
+
+    # Show each correction
     lines.append("")
-    lines.append("Исправления:")
     for c in corrections:
         original = c.get("original", "")
         corrected = c.get("corrected", "")
-        lines.append(f"  {original}  →  {corrected}")
+        lines.append(f"  • {original}  →  {corrected}")
+
+    lines.append("")
 
     # Explanation
-    lines.append(f"\n{'─' * 20}")
-    lines.append("Разбор:\n")
+    lines.append(f"{'─' * 20}")
+    lines.append("📖 Разбор")
+    lines.append("")
     for c in corrections:
         explanation = c.get("detailed_explanation", "")
         if explanation:
             lines.append(explanation)
             lines.append("")
 
-    # Rule & when to use (from first correction)
+    # Rule & when to use
     rule = corrections[0].get("rule_name", "") if corrections else ""
     if rule:
         lines.append(f"{'─' * 20}")
-        lines.append(f"Правило: {rule}\n")
+        lines.append(f"📏 Правило: {rule}")
+        lines.append("")
 
         when = corrections[0].get("when_to_use", "")
         if when:
-            lines.append(f"Когда: {when}\n")
+            lines.append(f"⏰ Когда: {when}")
+            lines.append("")
 
         formula = corrections[0].get("formula", "")
         if formula:
-            lines.append(f"Формула: {formula}")
+            lines.append(f"🔢 Формула: {formula}")
+            lines.append("")
 
-    lines.append(f"\n{sep}")
+    lines.append(sep)
     return "\n".join(lines)

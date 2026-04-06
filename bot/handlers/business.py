@@ -177,7 +177,12 @@ async def _full_check(
 
     constructions = result.get("constructions", [])
     corrections = result.get("corrections", [])
+    corrected_full = result.get("corrected_full", "")
     native_tip = result.get("native_tip")
+
+    # Pass corrected_full to first correction for formatting
+    if corrections and corrected_full:
+        corrections[0]["corrected_full"] = corrected_full
 
     async with async_session() as session:
         await update_streak(session, user_id)

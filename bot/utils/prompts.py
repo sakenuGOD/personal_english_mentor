@@ -60,8 +60,8 @@ Respond with:
   "has_errors": boolean,
   "corrections": [
     {
-      "original": "wrong phrase",
-      "corrected": "right phrase",
+      "original": "the EXACT wrong part from user's message (e.g. 'am enjoy')",
+      "corrected": "the corrected part with enough context to be clear (e.g. 'am enjoying' NOT just 'enjoying')",
       "full_sentence": "The FULL original sentence the user wrote",
       "short_explanation": "max 5 words for inline correction",
       "detailed_explanation": "ОДНО цельное подробное объяснение НА РУССКОМ для этой ошибки (если ошибок несколько — первая correction содержит объяснение ВСЕХ ошибок вместе, остальные corrections оставь с пустым detailed_explanation). Минимум 5-7 предложений. Объясни как другу: что написал, что это буквально значит, почему неправильно, как правильно, когда что используется, маркеры/триггеры.",
