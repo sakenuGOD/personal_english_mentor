@@ -46,6 +46,24 @@ _IRREGULARS = {
     "think": ("thought", "thought"), "throw": ("threw", "thrown"),
     "understand": ("understood", "understood"), "wake": ("woke", "woken"),
     "wear": ("wore", "worn"), "win": ("won", "won"), "write": ("wrote", "written"),
+    # ── Extended: commonly confused / missed irregular verbs ──
+    "lay": ("laid", "laid"), "lie": ("lay", "lain"),
+    "hang": ("hung", "hung"), "shine": ("shone", "shone"),
+    "bite": ("bit", "bitten"), "hide": ("hid", "hidden"),
+    "dig": ("dug", "dug"), "stick": ("stuck", "stuck"),
+    "strike": ("struck", "struck"), "shake": ("shook", "shaken"),
+    "freeze": ("froze", "frozen"), "steal": ("stole", "stolen"),
+    "tear": ("tore", "torn"), "blow": ("blew", "blown"),
+    "seek": ("sought", "sought"), "slide": ("slid", "slid"),
+    "swing": ("swung", "swung"), "cling": ("clung", "clung"),
+    "creep": ("crept", "crept"), "leap": ("leapt", "leapt"),
+    "weave": ("wove", "woven"), "bind": ("bound", "bound"),
+    "grind": ("ground", "ground"), "wind": ("wound", "wound"),
+    "bear": ("bore", "borne"), "swear": ("swore", "sworn"),
+    "arise": ("arose", "arisen"), "awake": ("awoke", "awoken"),
+    "forgive": ("forgave", "forgiven"), "forbid": ("forbade", "forbidden"),
+    "withdraw": ("withdrew", "withdrawn"), "overcome": ("overcame", "overcome"),
+    "undertake": ("undertook", "undertaken"), "mistake": ("mistook", "mistaken"),
 }
 
 # Common regular verbs (not in irregulars list)
@@ -66,10 +84,17 @@ _REGULAR_VERBS = {
 # Build reverse lookups
 _BASE_FORMS = set(_IRREGULARS.keys()) | _REGULAR_VERBS
 _PAST_FORMS = {v[0] for v in _IRREGULARS.values()} | {v[1] for v in _IRREGULARS.values()}
+_V3_FORMS = {v[1] for v in _IRREGULARS.values()}  # past participles only
 _PAST_TO_BASE = {}
 for base, (past, pp) in _IRREGULARS.items():
     _PAST_TO_BASE[past] = base
     _PAST_TO_BASE[pp] = base
+
+# Regular -ed forms that are V3 (past participle) — for "been waited" detection
+_REGULAR_ED = {v + "ed" for v in _REGULAR_VERBS if not v.endswith("e")}
+_REGULAR_ED |= {v + "d" for v in _REGULAR_VERBS if v.endswith("e")}
+_REGULAR_ED |= {v[:-1] + "ied" for v in _REGULAR_VERBS if v.endswith("y") and len(v) > 1 and v[-2] not in "aeiou"}
+_ALL_V3 = _V3_FORMS | _REGULAR_ED  # all past participle forms
 
 # Words that look like base verbs but aren't (adjectives, nouns, etc.)
 _NOT_VERBS = {
@@ -105,23 +130,134 @@ def _is_base_verb(word: str) -> bool:
     return True
 
 
+_STATIVE_VERBS = {
+    "know", "believe", "understand", "remember", "forget", "realize",
+    "recognize", "suppose", "mean", "contain", "consist", "belong",
+    "own", "possess", "owe", "deserve", "lack", "matter", "mind",
+    "doubt", "deny", "agree", "disagree", "refuse", "prefer",
+    "hate", "adore", "appreciate", "envy", "fear", "trust",
+    "seem", "appear", "resemble", "depend", "measure", "weigh", "cost",
+}
+
+_DOUBLE_MODALS = {"can", "could", "will", "would", "shall", "should", "may", "might", "must"}
+
+_ABSOLUTE_ADJECTIVES = {
+    "unique", "perfect", "complete", "absolute", "total", "entire",
+    "impossible", "infinite", "dead", "empty", "full", "pregnant",
+    "unanimous", "universal", "supreme", "essential", "fatal",
+    "identical", "opposite", "ultimate", "final", "eternal",
+}
+
+_WRONG_PREPOSITIONS = {
+    "depend of": "depend on", "depend from": "depend on",
+    "consist from": "consist of", "consist in": "consist of",
+    "arrive to": "arrive at/in", "arrive at home": "arrive home",
+    "married with": "married to",
+    "interested for": "interested in",
+    "listen the": "listen to the", "listen a": "listen to a",
+    "discuss about": "discuss (without about)",
+    "enter to": "enter (without to)", "enter into the": "enter the",
+    "explain me": "explain to me",
+    "apologize him": "apologize to him", "apologize her": "apologize to her",
+}
+
+# Collective nouns that are always plural in English
+_ALWAYS_PLURAL_NOUNS = {"police", "people", "cattle", "clergy", "militia"}
+
+# Uncountable nouns that ESL learners often pluralize
+_UNCOUNTABLE_NOUNS = {
+    "advice", "information", "furniture", "equipment", "luggage", "baggage",
+    "knowledge", "research", "homework", "housework", "work", "traffic",
+    "travel", "progress", "evidence", "news", "music", "weather",
+    "money", "bread", "rice", "water", "milk", "coffee", "tea",
+    "sugar", "salt", "flour", "butter", "meat", "fruit", "hair",
+    "feedback", "software", "hardware", "data", "staff", "vocabulary",
+    "grammar", "slang", "underwear", "clothing", "jewelry",
+}
+
+# Countries/cities that should NOT have "the"
+_NO_ARTICLE_PLACES = {
+    "france", "germany", "italy", "spain", "japan", "china", "russia",
+    "brazil", "india", "canada", "australia", "mexico", "turkey",
+    "egypt", "greece", "poland", "sweden", "norway", "finland",
+    "denmark", "portugal", "austria", "belgium", "switzerland",
+    "ireland", "scotland", "england", "korea", "vietnam", "thailand",
+    "indonesia", "malaysia", "singapore", "israel", "iran", "iraq",
+    "africa", "europe", "asia", "london", "paris", "berlin", "rome",
+    "moscow", "tokyo", "beijing", "seoul", "bangkok", "sydney",
+    "amsterdam", "prague", "vienna", "warsaw", "budapest", "lisbon",
+}
+
+# Common Russisms / false-friend patterns
+_RUSSISMS = {
+    "feel myself": "feel (без myself, если не буквально «ощупывать себя»)",
+    "learn by heart": None,  # correct — exclude from false positives
+    "say him": "tell him",
+    "say her": "tell her",
+    "say them": "tell them",
+    "say me": "tell me",
+    "propose to go": "suggest going",
+    "make a photo": "take a photo",
+    "make photos": "take photos",
+    "make a picture": "take a picture",
+    "learn him": "teach him",
+    "learn her": "teach her",
+    "learn them": "teach them",
+    "became to": "began to / started to",
+    "win money": None,  # actually fine
+    "recipe of": "recipe for",
+    "return back": "return (без back — return уже значит «вернуться»)",
+}
+
+# Indirect-question trigger words
+_INDIRECT_Q_TRIGGERS = {"ask", "asked", "wonder", "wondered", "wondering",
+                        "know", "knew", "understand", "understood", "explain",
+                        "explained", "tell", "told", "remember", "forgot"}
+
+
+def _add_ing(verb: str) -> str:
+    """Add -ing to a verb with proper spelling: live→living, run→running."""
+    if verb.endswith("ie"):
+        return verb[:-2] + "ying"
+    if verb.endswith("e") and not verb.endswith("ee"):
+        return verb[:-1] + "ing"
+    if (len(verb) >= 3 and verb[-1] in "bdgklmnprst"
+            and verb[-2] in "aeiou" and verb[-3] not in "aeiou"):
+        return verb + verb[-1] + "ing"
+    return verb + "ing"
+
+
+def _add_ed(verb: str) -> str:
+    """Add -ed to a verb with proper spelling: live→lived, try→tried."""
+    if verb.endswith("e"):
+        return verb + "d"
+    if verb.endswith("y") and len(verb) > 1 and verb[-2] not in "aeiou":
+        return verb[:-1] + "ied"
+    if (len(verb) >= 3 and verb[-1] in "bdgklmnprst"
+            and verb[-2] in "aeiou" and verb[-3] not in "aeiou"):
+        return verb + verb[-1] + "ed"
+    return verb + "ed"
+
+
 def _check_patterns(text: str) -> list[str]:
     """Check text for grammar patterns LanguageTool misses. Returns list of error descriptions."""
     words = text.lower().split()
     errors = []
+    text_lower = text.lower()
 
     for i in range(len(words) - 1):
         w = words[i]
         nxt = words[i + 1] if i + 1 < len(words) else ""
         nxt2 = words[i + 2] if i + 2 < len(words) else ""
         prev = words[i - 1] if i > 0 else ""
+        prev2 = words[i - 2] if i > 1 else ""
 
         # ── Pattern 1: "been + base verb" (should be been + V-ing) ──
         # "had been wait", "has been work", "have been go"
         if w == "been" and nxt and _is_base_verb(nxt) and not nxt.endswith("ing"):
             if nxt not in {"to", "a", "an", "the", "my", "his", "her", "their", "its", "our", "your"}:
                 if nxt in _BASE_FORMS or (not nxt.endswith(("tion", "sion", "ment", "ness"))):
-                    errors.append(f"been {nxt} → been {nxt}ing")
+                    errors.append(f"been {nxt} → been {_add_ing(nxt)}")
 
         # ── Pattern 2: "did + past tense" (should be did + base form) ──
         # "did went", "did saw", "didn't came"
@@ -146,7 +282,7 @@ def _check_patterns(text: str) -> list[str]:
                           "gonna", "going", "about", "supposed", "allowed", "likely",
                           "used", "able", "such", "what", "how", "why", "where", "when"}:
                 if nxt in _BASE_FORMS:
-                    errors.append(f"{w} {nxt} → {w} {nxt}ing")
+                    errors.append(f"{w} {nxt} → {w} {_add_ing(nxt)}")
 
         # ── Pattern 5: "have/has + base verb" (should be have + V3) ──
         # "I have go", "she has see", "we have take"
@@ -156,7 +292,7 @@ def _check_patterns(text: str) -> list[str]:
                 if nxt != pp:  # base differs from past participle
                     errors.append(f"{w} {nxt} → {w} {pp}")
             elif nxt in _REGULAR_VERBS:
-                errors.append(f"{w} {nxt} → {w} {nxt}ed")
+                errors.append(f"{w} {nxt} → {w} {_add_ed(nxt)}")
 
         # ── Pattern 6: "was/were + base verb" (should be V-ing or V3) ──
         # "I was go", "they were play"
@@ -167,7 +303,7 @@ def _check_patterns(text: str) -> list[str]:
                           "never", "always", "also", "still", "even", "only",
                           "such", "what", "how", "why", "where", "when"}:
                 if nxt in _BASE_FORMS:
-                    errors.append(f"{w} {nxt} → {w} {nxt}ing")
+                    errors.append(f"{w} {nxt} → {w} {_add_ing(nxt)}")
 
         # ── Pattern 7: double past "did + V-ed" ──
         # "did worked", "did played", "didn't watched"
@@ -192,7 +328,397 @@ def _check_patterns(text: str) -> list[str]:
                           "watch", "watched", "saw", "see", "heard", "hear",
                           "make", "made", "help", "helped"}
             if prev not in modal_words:
-                errors.append(f"{w} {nxt} → {w} {nxt}s")
+                if nxt in ("go", "do"):
+                    errors.append(f"{w} {nxt} → {w} {nxt}es")
+                elif nxt.endswith(("s", "sh", "ch", "x", "z")):
+                    errors.append(f"{w} {nxt} → {w} {nxt}es")
+                elif nxt.endswith("y") and len(nxt) > 1 and nxt[-2] not in "aeiou":
+                    errors.append(f"{w} {nxt} → {w} {nxt[:-1]}ies")
+                else:
+                    errors.append(f"{w} {nxt} → {w} {nxt}s")
+
+        # ── Pattern 10: "had + V2" (should be had + V3 for Past Perfect) ──
+        # "had went" → "had gone", "had drank" → "had drunk"
+        if w in ("had", "hadn't", "hadnt") and nxt in _PAST_TO_BASE:
+            base = _PAST_TO_BASE[nxt]
+            if base in _IRREGULARS:
+                past, pp = _IRREGULARS[base]
+                if nxt == past and past != pp:  # V2 used instead of V3
+                    errors.append(f"had {nxt} → had {pp}")
+
+        # ── Pattern 11: "if + would" (Conditional Type 2 error) ──
+        # "if I would go" → "if I went"
+        if w == "if" and nxt2 == "would":
+            errors.append(f"if ... would → в if-clause нельзя would")
+        if w == "if" and nxt == "would":
+            errors.append(f"if would → в if-clause нельзя would")
+
+        # ── Pattern 12: "would + V2" (should be would + base) ──
+        # "I would went" → "I would go"
+        if w in ("would", "wouldn't", "wouldnt") and nxt in _PAST_TO_BASE:
+            base = _PAST_TO_BASE[nxt]
+            if nxt != base:
+                errors.append(f"would {nxt} → would {base}")
+
+        # ── Pattern 13: "wish + can/have/am/is/are" (needs backshift) ──
+        # "I wish I can" → "I wish I could"
+        if w == "wish":
+            if nxt == "i" and nxt2 in ("can", "have", "am", "will"):
+                backshift = {"can": "could", "have": "had", "am": "were", "will": "would"}
+                if nxt2 in backshift:
+                    errors.append(f"wish I {nxt2} → wish I {backshift[nxt2]}")
+            elif nxt2 in ("can", "is", "are", "will", "have", "has"):
+                backshift = {"can": "could", "is": "were", "are": "were",
+                            "will": "would", "have": "had", "has": "had"}
+                if nxt2 in backshift:
+                    errors.append(f"wish ... {nxt2} → wish ... {backshift[nxt2]}")
+
+        # ── Pattern 14: double modals ──
+        # "can could", "should must", "will can"
+        if w in _DOUBLE_MODALS and nxt in _DOUBLE_MODALS:
+            errors.append(f"{w} {nxt} → нельзя два модальных подряд")
+
+        # ── Pattern 15: "since/for + present simple" (needs Perfect) ──
+        # "I live here since 2010" → "I have lived here since 2010"
+        if w in ("since", "for") and prev in _BASE_FORMS:
+            # Check if subject before verb suggests present simple
+            if prev2 in ("i", "we", "you", "they"):
+                if prev in _IRREGULARS:
+                    _, pp = _IRREGULARS[prev]
+                    form = f"have {pp}"
+                else:
+                    form = f"have {_add_ed(prev)}"
+                errors.append(f"{prev2} {prev} ... {w} → нужен Present Perfect ({form})")
+
+        # ── Pattern 16: stative verbs in continuous ──
+        # "I am knowing", "she is understanding", "we are believing"
+        if w in ("am", "is", "are", "was", "were") and nxt and nxt.endswith("ing"):
+            stem = nxt[:-3]  # remov-ing
+            # Handle double consonant: "running" → "run"
+            if stem and stem[-1] == stem[-2:]:
+                stem = stem[:-1]
+            if stem in _STATIVE_VERBS or nxt[:-3] in _STATIVE_VERBS:
+                errors.append(f"{w} {nxt} → {stem} не используется в Continuous")
+
+        # ── Pattern 17: "did ... used to" (should be "did ... use to") ──
+        # "did used to", "did you used to", "didn't used to"
+        if w == "used" and nxt == "to":
+            # Check if "did" appears before (possibly with pronoun in between)
+            if prev in ("did", "didn't", "didnt") or prev2 in ("did", "didn't", "didnt"):
+                errors.append(f"did ... used to → did ... use to")
+
+        # ── Pattern 18: passive V2 instead of V3 ──
+        # "was send" → "was sent", "was broke" → "was broken"
+        if w in ("was", "were", "been", "being", "be", "get", "got", "gets") and nxt in _PAST_TO_BASE:
+            base = _PAST_TO_BASE[nxt]
+            if base in _IRREGULARS:
+                past, pp = _IRREGULARS[base]
+                if nxt == past and past != pp:  # V2 used instead of V3 in passive
+                    errors.append(f"{w} {nxt} → {w} {pp}")
+
+        # ── Pattern 19: "looking forward to + base verb" ──
+        # "looking forward to see" → "looking forward to seeing"
+        if w == "forward" and nxt == "to" and prev == "looking":
+            if nxt2 and _is_base_verb(nxt2) and not nxt2.endswith("ing"):
+                if nxt2 in _BASE_FORMS:
+                    errors.append(f"looking forward to {nxt2} → looking forward to {_add_ing(nxt2)}")
+
+        # ── Pattern 20: "very/really + absolute adjective" ──
+        # "very unique", "very perfect", "really complete"
+        if w in ("very", "really", "extremely", "absolutely") and nxt in _ABSOLUTE_ADJECTIVES:
+            errors.append(f"{w} {nxt} → {nxt} — абсолютное прилагательное, не нуждается в степени")
+
+        # ── Pattern 21: negative adverb without inversion ──
+        # "Never I have seen" → "Never have I seen"
+        if w in ("never", "seldom", "rarely", "hardly", "scarcely", "barely", "nowhere", "neither"):
+            if nxt in ("i", "he", "she", "it", "we", "they", "you"):
+                if nxt2 in ("have", "has", "had", "was", "were", "am", "is", "are",
+                           "do", "does", "did", "will", "would", "can", "could",
+                           "should", "might", "may", "shall", "must"):
+                    errors.append(
+                        f"{w} {nxt} {nxt2} → {w} {nxt2} {nxt} (нужна инверсия после {w})"
+                    )
+
+        # ── Pattern 22: "should/could/might + V2" (should be + base) ──
+        # "I should went", "she could saw", "they might broke"
+        if w in ("should", "shouldn't", "shouldnt",
+                 "could", "couldn't", "couldnt",
+                 "might", "mightn't", "mightnt",
+                 "may", "must", "shall", "can", "cannot", "can't", "cant"):
+            if nxt in _PAST_TO_BASE:
+                base = _PAST_TO_BASE[nxt]
+                if nxt != base:
+                    errors.append(f"{w} {nxt} → {w} {base}")
+
+        # ── Pattern 25: causative "let + obj + to" (should be bare infinitive) ──
+        # "let him to stay" → "let him stay"
+        if w in ("let", "lets") and nxt in ("me", "him", "her", "us", "them", "it") and nxt2 == "to":
+            errors.append(f"let {nxt} to ... → let {nxt} + bare infinitive (без to)")
+
+        # ── Pattern 26: causative "made + obj + V-ing" (should be bare inf) ──
+        # "made me crying" → "made me cry"
+        if w == "made" and nxt in ("me", "him", "her", "us", "them", "it"):
+            if nxt2 and nxt2.endswith("ing") and len(nxt2) > 3:
+                # Reverse _add_ing: crying→cry, running→run, living→live
+                stem = nxt2[:-3]
+                if nxt2.endswith("ying") and len(nxt2) > 4:
+                    candidate = nxt2[:-4] + "ie"  # dying→die, lying→lie
+                    # Only use ie-form if it's a known verb (avoid crying→crie)
+                    if candidate in _BASE_FORMS:
+                        stem = candidate
+                if stem and len(stem) >= 2 and stem[-1] == stem[-2]:
+                    stem = stem[:-1]  # running→run, stopping→stop
+                elif stem and not stem.endswith("e"):
+                    # Check if adding back 'e' makes a known word: living→live
+                    if (stem + "e") in _BASE_FORMS:
+                        stem = stem + "e"
+                errors.append(f"made {nxt} {nxt2} → made {nxt} {stem}")
+
+        # ── Pattern 27: "it's time + present" (needs past) ──
+        # "it's time we go" → "it's time we went"
+        if w == "time" and prev in ("it's", "its", "is"):
+            if nxt in ("we", "i", "you", "they", "he", "she"):
+                if nxt2 in _BASE_FORMS:
+                    if nxt2 in _IRREGULARS:
+                        past_form = _IRREGULARS[nxt2][0]
+                    else:
+                        past_form = _add_ed(nxt2)
+                    errors.append(f"it's time {nxt} {nxt2} → it's time {nxt} {past_form}")
+
+        # ── Pattern 28: collective nouns + singular verb ──
+        # "the police is coming" → "the police are coming"
+        if w in _ALWAYS_PLURAL_NOUNS and nxt in ("is", "was", "has", "does"):
+            plural_aux = {"is": "are", "was": "were", "has": "have", "does": "do"}
+            errors.append(f"{w} {nxt} → {w} {plural_aux[nxt]} ({w} — всегда множественное)")
+
+        # ── Pattern 29: "the" + country/city without article ──
+        # "the France", "the Japan"
+        if w == "the" and nxt in _NO_ARTICLE_PLACES:
+            errors.append(f"the {nxt} → {nxt} (без артикля)")
+
+        # ── Pattern 30: Only/Not only/Hardly + subject without inversion ──
+        # "Only then I realized" → "Only then did I realize"
+        if w in ("only", "hardly", "scarcely", "no sooner"):
+            if prev2 == "" or prev == "":  # at/near sentence start
+                if nxt2 and nxt2 in ("i", "he", "she", "it", "we", "they", "you"):
+                    # nxt is the adverb/time word, nxt2 is subject — no inversion
+                    nxt3 = words[i + 3] if i + 3 < len(words) else ""
+                    if nxt3 and (nxt3 in _BASE_FORMS or nxt3 in _PAST_FORMS
+                               or nxt3.endswith("ed") or nxt3.endswith("ing")
+                               or nxt3 in {"have", "has", "had", "was", "were",
+                                           "am", "is", "are"}):
+                        errors.append(
+                            f"{w} {nxt} {nxt2} {nxt3} → нужна инверсия после {w}"
+                        )
+
+        # ── Pattern 35: "been + V3/V-ed" (should be been + V-ing for continuous) ──
+        # "have been waited" → "have been waiting", "has been gone" → "has been going"
+        if w == "been" and nxt:
+            # V-ed form (regular): "been waited", "been played"
+            if nxt.endswith("ed") and len(nxt) > 3 and nxt not in {"used", "supposed"}:
+                if nxt in _ALL_V3 or nxt in _REGULAR_ED:
+                    errors.append(f"been {nxt} → been + V-ing? (возможно Perfect Continuous)")
+            # V3 irregular: "been gone", "been taken" (when V-ing is expected)
+            if nxt in _V3_FORMS and nxt not in _BASE_FORMS:
+                base = _PAST_TO_BASE.get(nxt, nxt)
+                if base != nxt:  # V3 differs from base → likely wrong
+                    errors.append(f"been {nxt} → been {_add_ing(base)}? (Perfect Continuous)")
+
+        # ── Pattern 36: "used to + V-ing" (should be "used to + base") ──
+        # BUT: "am/is/are used to + V-ing" is CORRECT (be used to = привык)
+        # "I am used to wake up" → "I am used to waking up"
+        if w == "used" and nxt == "to" and prev in ("am", "is", "are", "was", "were",
+                                                     "get", "got", "getting", "been"):
+            if nxt2 and _is_base_verb(nxt2) and not nxt2.endswith("ing"):
+                if nxt2 in _BASE_FORMS:
+                    errors.append(
+                        f"be used to {nxt2} → be used to {_add_ing(nxt2)} "
+                        f"(после be used to — герундий)"
+                    )
+
+        # ── Pattern 37: "would rather + subj + base" (needs past for diff subject) ──
+        # "I would rather you go" → "I would rather you went"
+        if w == "rather" and prev in ("would", "wouldn't", "wouldnt", "'d"):
+            if nxt in ("you", "he", "she", "we", "they", "it"):
+                if nxt2 in _BASE_FORMS and nxt2 != "had":
+                    errors.append(
+                        f"would rather {nxt} {nxt2} → would rather {nxt} + Past Simple "
+                        f"(для другого субъекта нужно прошедшее)"
+                    )
+
+        # ── Pattern 38: "needs/need + V3/V-ed" without "to be" ──
+        # "The car needs repaired" → "needs repairing" or "needs to be repaired"
+        if w in ("need", "needs") and nxt:
+            if nxt.endswith("ed") and len(nxt) > 4 and nxt not in {"indeed", "need", "speed"}:
+                # Any -ed word after needs is suspect (don't require it in our verb list)
+                errors.append(f"{w} {nxt} → {w} V-ing или {w} to be {nxt}")
+            # Also irregular V3: "needs broken", "needs written"
+            elif nxt in _V3_FORMS and nxt not in _BASE_FORMS:
+                base = _PAST_TO_BASE.get(nxt, "")
+                if base:
+                    errors.append(
+                        f"{w} {nxt} → {w} {_add_ing(base)} или {w} to be {nxt}"
+                    )
+
+        # ── Pattern 39: "so much + adj" (should be "so" without "much") ──
+        # "so much expensive" → "so expensive"
+        # "so much" before adj is wrong; before noun is fine ("so much money")
+        if w == "so" and nxt == "much":
+            if nxt2 and nxt2.endswith(("ive", "ous", "ful", "ant", "ent", "ble", "al",
+                                       "ish", "ary", "ic")):
+                errors.append(f"so much {nxt2} → so {nxt2} (so much — только перед существительными)")
+            # Common adjectives that don't end in those suffixes
+            if nxt2 in {"big", "small", "good", "bad", "old", "new", "long", "short",
+                        "high", "low", "fast", "slow", "hard", "soft", "hot", "cold",
+                        "cheap", "rich", "poor", "young", "tall", "dark", "bright",
+                        "loud", "quiet", "warm", "cool", "clean", "dirty", "dry", "wet",
+                        "deep", "wide", "thin", "thick", "heavy", "light", "sweet",
+                        "strong", "weak", "nice", "fine", "safe", "rare", "rude", "late",
+                        "strict", "proud", "glad", "smart"}:
+                errors.append(f"so much {nxt2} → so {nxt2} (so much — только перед существительными)")
+
+        # ── Pattern 40: "despite + clause" (needs "despite the fact that" or "although") ──
+        # "despite he was tired" → "despite being tired" / "although he was tired"
+        if w == "despite" and nxt in ("i", "he", "she", "it", "we", "they", "you"):
+            errors.append(
+                f"despite {nxt}... → despite — предлог, не союз. "
+                f"Нужно: although {nxt}... / despite the fact that {nxt}..."
+            )
+
+        # ── Pattern 41: "suggest + obj + to" (should be suggest + V-ing / suggest that) ──
+        # "I suggest him to go" → "I suggest that he go" / "I suggest going"
+        if w in ("suggest", "suggested", "suggests") and nxt2 == "to":
+            if nxt in ("me", "him", "her", "us", "them", "it"):
+                errors.append(
+                    f"{w} {nxt} to → suggest не используется с obj + to. "
+                    f"Нужно: {w} that ... / {w} {_add_ing(words[i+3]) if i+3 < len(words) and words[i+3] in _BASE_FORMS else 'V-ing'}"
+                )
+
+        # ── Pattern 42: "even + subj + verb" without "though/if" ──
+        # "even I tried" → "even though I tried"
+        if w == "even" and nxt in ("i", "he", "she", "it", "we", "they", "you"):
+            if nxt not in ("if", "though", "when", "so"):
+                # Check that next word after subject is a verb
+                if nxt2 and (nxt2 in _BASE_FORMS or nxt2 in _PAST_FORMS or nxt2.endswith("ed")):
+                    # But "even I know" is valid (emphatic). Only flag if it looks like a clause start
+                    # Check if there's a main clause after (another subject+verb)
+                    rest = " ".join(words[i+3:])
+                    has_main_clause = bool(re.search(r'\b(i|he|she|it|we|they|you)\s+\w+', rest))
+                    if has_main_clause:
+                        errors.append(
+                            f"even {nxt} {nxt2} → even though/even if {nxt} {nxt2}? "
+                            f"(even без though/if не является союзом)"
+                        )
+
+        # ── Pattern 43: "neither ... nor ... was" (agreement with nearest noun) ──
+        # Complex — just catch "nor the/a PLURAL_NOUN was"
+        if w == "nor":
+            # Look ahead for "was" after plural subject
+            for j in range(i + 1, min(i + 5, len(words))):
+                if words[j] == "was" and j > i + 1:
+                    # Check if noun before "was" is likely plural
+                    noun_before = words[j - 1]
+                    if noun_before.endswith("s") and not noun_before.endswith(("ss", "us", "is")):
+                        errors.append(
+                            f"nor ... {noun_before} was → nor ... {noun_before} were "
+                            f"(согласование с ближайшим существительным)"
+                        )
+                    break
+
+    # ── Pattern 23: wrong verb-preposition collocations (multi-word) ──
+    for wrong, correct in _WRONG_PREPOSITIONS.items():
+        if wrong in text_lower:
+            errors.append(f"{wrong} → {correct}")
+
+    # ── Pattern 44: "it's time" + present tense (regex for broader coverage) ──
+    its_time = re.search(
+        r"\b(?:it'?s|it\s+is)\s+(?:high\s+)?time\s+(i|we|you|they|he|she)\s+("
+        + "|".join(_BASE_FORMS) + r")\b",
+        text_lower
+    )
+    if its_time:
+        subj = its_time.group(1)
+        verb = its_time.group(2)
+        errors.append(f"it's time {subj} {verb} → it's time + Past Simple")
+
+    # ── Pattern 31: uncountable nouns with plural -s ──
+    # Skip nouns whose plural form is also a common verb (works, travels, etc.)
+    _UNCOUNTABLE_ALSO_VERB = {"work", "travel", "water", "milk", "salt", "sugar",
+                              "butter", "rice", "rain", "progress", "research",
+                              "weather", "traffic", "staff", "fruit", "hair"}
+    for noun in _UNCOUNTABLE_NOUNS:
+        if noun in _UNCOUNTABLE_ALSO_VERB:
+            continue  # skip — "works" / "travels" are too ambiguous with verb forms
+        plural = noun + "s"
+        if plural in words:
+            errors.append(f"{plural} → {noun} (неисчисляемое, нельзя во множественном)")
+
+    # ── Pattern 32: Russisms / false friends ──
+    for pattern, fix in _RUSSISMS.items():
+        if fix is not None and pattern in text_lower:
+            errors.append(f"{pattern} → {fix}")
+
+    # ── Pattern 33: indirect question with inversion ──
+    # "I asked where did he go" → "I asked where he went"
+    indirect_q = re.search(
+        r'\b(' + '|'.join(_INDIRECT_Q_TRIGGERS) + r')\b.*\b(where|when|why|how|what|who|whether|if)'
+        r'\s+(did|does|do|has|have|had|is|are|was|were|will|would|can|could)\s+'
+        r'(i|he|she|it|we|they|you)\b',
+        text_lower
+    )
+    if indirect_q:
+        aux = indirect_q.group(3)
+        subj = indirect_q.group(4)
+        errors.append(
+            f"...{indirect_q.group(2)} {aux} {subj}... → "
+            f"в косвенном вопросе прямой порядок слов: {indirect_q.group(2)} {subj} ..."
+        )
+
+    # ── Pattern 34: "arrive + noun" without preposition ──
+    # "arrive the station" → "arrive at the station"
+    arrive_match = re.search(
+        r'\b(arrive|arrived|arrives)\s+(the|a|an|this|that|my|his|her|our|their)\b',
+        text_lower
+    )
+    if arrive_match:
+        errors.append(
+            f"{arrive_match.group(1)} {arrive_match.group(2)}... → "
+            f"{arrive_match.group(1)} at/in {arrive_match.group(2)}..."
+        )
+
+    # ── Pattern 24: "since/for" at end after present simple ──
+    # "I work here since 2010" — regex-based
+    since_for_match = re.search(
+        r'\b(i|we|you|they)\s+(live|work|stay|study|know|play|wait|teach)\b.*\b(since|for)\b',
+        text_lower
+    )
+    if since_for_match:
+        subj = since_for_match.group(1)
+        verb = since_for_match.group(2)
+        prep = since_for_match.group(3)
+        if verb in _IRREGULARS:
+            _, pp = _IRREGULARS[verb]
+            form = f"have {pp}"
+        else:
+            form = f"have {_add_ed(verb)}"
+        errors.append(f"{subj} {verb} ... {prep} → нужен Present Perfect ({form} ... {prep})")
+
+    # "he/she lives ... since" pattern
+    since_for_3rd = re.search(
+        r'\b(he|she|it)\s+(lives|works|stays|studies|knows|plays|waits|teaches)\b.*\b(since|for)\b',
+        text_lower
+    )
+    if since_for_3rd:
+        subj = since_for_3rd.group(1)
+        verb = since_for_3rd.group(2)
+        prep = since_for_3rd.group(3)
+        # Strip the -s/-es to get base form
+        base = verb[:-1] if verb.endswith("s") else verb
+        if base in _IRREGULARS:
+            _, pp = _IRREGULARS[base]
+        else:
+            pp = _add_ed(base)
+        errors.append(f"{subj} {verb} ... {prep} → нужен Present Perfect (has {pp} ... {prep})")
 
     return errors
 
