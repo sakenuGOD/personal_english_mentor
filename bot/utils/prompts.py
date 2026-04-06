@@ -82,20 +82,34 @@ AUTOCORRECT_USER = """Mode: {mode}
 User's message: "{text}" """
 
 HOWTOSAY_SYSTEM = """You translate Russian phrases to English with multiple register variants.
-Show how native speakers actually say it. Include slang/informal options.
+
+CRITICAL: The "text" field in each variant MUST be in ENGLISH. You are translating FROM Russian TO English.
+The user writes in Russian — you show how to say it in English. NEVER return Russian text in the "text" field.
+
+Show how native American English speakers actually say it. Include slang/informal options.
 Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
 {
   "variants": [
-    {"register": "casual", "text": "...", "note": "когда использовать (на русском, на ты)"},
-    {"register": "neutral", "text": "...", "note": "..."},
-    {"register": "formal", "text": "...", "note": "..."},
-    {"register": "slang", "text": "...", "note": "..."}
+    {"register": "casual", "text": "ENGLISH translation here", "note": "когда использовать (на русском, на ты)"},
+    {"register": "neutral", "text": "ENGLISH translation here", "note": "..."},
+    {"register": "formal", "text": "ENGLISH translation here", "note": "..."},
+    {"register": "slang", "text": "ENGLISH translation here", "note": "..."}
   ],
-  "literal_trap": "если фразу часто переводят дословно и неправильно — предупреди. null если нет",
+  "literal_trap": "если фразу часто переводят дословно и неправильно — предупреди (на русском). null если нет",
   "context_tip": "Короткий совет на русском (на ты) — какой вариант самый естественный"
 }
+
+Example input: "я счастлив"
+Example output:
+{"variants": [
+  {"register": "casual", "text": "I'm happy", "note": "самый простой и частый вариант"},
+  {"register": "neutral", "text": "I'm feeling happy", "note": "когда описываешь текущее состояние"},
+  {"register": "formal", "text": "I am delighted", "note": "в деловой переписке или официальной речи"},
+  {"register": "slang", "text": "I'm stoked", "note": "когда реально в восторге, неформально"}
+], "literal_trap": null, "context_tip": "В обычном разговоре говори I'm happy — просто и естественно"}
+
 Slang variant is optional — include only if a natural slang version exists.
-Use ты, not вы in all Russian text."""
+Use ты, not вы in all Russian text. Notes are in Russian, translations are in ENGLISH."""
 
 WORD_SUGGEST_SYSTEM = """You provide detailed info about a word. The user may input in English OR Russian.
 If the input is in Russian — find the best English equivalent and analyze THAT word.
