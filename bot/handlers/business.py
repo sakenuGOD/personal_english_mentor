@@ -106,7 +106,7 @@ async def handle_business_message(message: Message, bot: Bot):
     if text in ("?", "/check", "check") and message.reply_to_message:
         reply_text = message.reply_to_message.text
         if reply_text and message.reply_to_message.from_user and message.reply_to_message.from_user.id == user_id:
-            logger.info(f"Reply check for '{reply_text[:50]}' from user {user_id}")
+            logger.info(f"Reply check from user {user_id}")
             # Delete "?" immediately via deleteBusinessMessages (Bot API 9.0)
             await _delete_business_msg(bot, business_connection_id, message.message_id)
             # Get user mode
@@ -171,7 +171,7 @@ async def _full_check(
 ):
     """Full GPT check — called for errors or reaction-triggered checks."""
     result = await check_grammar(text, mode)
-    logger.info(f"Grammar check '{text[:50]}': {result.get('has_errors') if result else None}")
+    logger.info(f"Grammar check: has_errors={result.get('has_errors') if result else None}")
     if result is None:
         return
 
@@ -307,7 +307,7 @@ async def handle_reaction(event: MessageReactionUpdated, bot: Bot):
 
     mode = user.correction_mode if user else "balanced"
 
-    logger.info(f"Reaction check for '{text[:50]}' from user {user_id}")
+    logger.info(f"Reaction check from user {user_id}")
     await _full_check(text, user_id, chat_id, mode, bot, reaction_check=True)
 
 
