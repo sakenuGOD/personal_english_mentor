@@ -287,7 +287,81 @@ async def process_workout_answer(message: Message, state: FSMContext):
 
 
 # ═══════════════════════════════════════════
-#  LEVEL TEST (тест на уровень — 4 этапа)
+#  GENERAL WORKOUT (общая тренировка)
+# ═══════════════════════════════════════════
+
+GENERAL_WORKOUT_SYSTEM = """You are an English teacher creating a general practice exercise.
+Create exercises covering common grammar topics: tenses, articles, prepositions, conditionals, passive voice, etc.
+
+Rules:
+- Instructions in Russian, exercises in English
+- Use ты, concise
+- Mix difficulty levels (some easy, some hard)
+- Cover different grammar topics in each exercise
+
+Respond ONLY in valid JSON:
+{
+  "title": "Short title in Russian",
+  "tasks": [
+    {
+      "type": "fill_blank",
+      "sentence": "I ___ (go) to the store yesterday.",
+      "answer": "went",
+      "hint": "Past Simple — действие в прошлом с yesterday",
+      "related_error": "Past Simple vs Present Perfect"
+    }
+  ],
+  "summary": "1-2 sentences in Russian about what this targets"
+}
+
+Types: fill_blank, correct_sentence, choose_right."""
+
+
+async def start_general_workout(callback_or_message, state: FSMContext, user_id: int):
+    """Start general workout — not based on errors."""
+    target = callback_or_message.message if isinstance(callback_or_message, CallbackQuery) else callback_or_message
+
+    await state.set_state(WorkoutStates.config_count)
+    await state.update_data(workout_user_id=user_id, workout_type="general")
+
+    from bot.keyboards.inline import workout_count_keyboard
+    await target.answer(
+        "🎯 Общая тренировка\n\n📊 Сколько вопросов?",
+        reply_markup=workout_count_keyboard(),
+    )
+
+
+async def _generate_and_start_general(target, state: FSMContext, count: int, hints: bool):
+    """Generate general workout."""
+    await target.answer("⏳ Генерирую упражнения...")
+    hint_instruction = "Include hints for each task." if hints else "Do NOT include hints."
+    result = await ask_groq(
+        GENERAL_WORKOUT_SYSTEM,
+        f"Generate exactly {count} tasks covering different grammar topics. {hint_instruction}",
+    )
+
+    if not result or not result.get("tasks"):
+        await target.answer("⚠️ Не удалось сгенерировать.")
+        await state.clear()
+        return
+
+    tasks = result["tasks"][:count]
+    if not hints:
+        for t in tasks:
+            t.pop("hint", None)
+
+    await state.set_state(WorkoutStates.answering)
+    await state.update_data(tasks=tasks, current=0, correct=0, total=len(tasks))
+
+    text = f"🎯 {result.get('title', 'Общая тренировка')}\n\n"
+    text += _format_task(tasks[0], 1, len(tasks))
+
+    from bot.keyboards.inline import workout_skip_keyboard
+    await target.answer(text, reply_markup=workout_skip_keyboard())
+
+
+# ═══════════════════════════════════════════
+#  LEVEL TEST (тест на уровень — 5 этапов)
 # ═══════════════════════════════════════════
 
 async def start_level_test(callback_or_message, state: FSMContext, user_id: int):

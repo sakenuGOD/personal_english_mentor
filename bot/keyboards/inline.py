@@ -78,6 +78,7 @@ def progress_keyboard() -> InlineKeyboardMarkup:
 def workout_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Тест по ошибкам", callback_data="workout:test")],
+        [InlineKeyboardButton(text="🎯 Общая тренировка", callback_data="workout:general")],
         [InlineKeyboardButton(text="📋 Тест на уровень", callback_data="workout:level_test")],
         [InlineKeyboardButton(text="🎭 Диалог-тренировка", callback_data="workout:roleplay")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],

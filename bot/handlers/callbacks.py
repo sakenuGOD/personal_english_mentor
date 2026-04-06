@@ -153,9 +153,21 @@ async def cb_workout_config_hints(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     count = data.get("workout_count", 5)
     user_id = data.get("workout_user_id", callback.from_user.id)
+    workout_type = data.get("workout_type", "errors")
     await callback.answer()
-    from bot.handlers.workout import _generate_and_start_workout
-    await _generate_and_start_workout(callback.message, state, user_id, count, hints)
+    if workout_type == "general":
+        from bot.handlers.workout import _generate_and_start_general
+        await _generate_and_start_general(callback.message, state, count, hints)
+    else:
+        from bot.handlers.workout import _generate_and_start_workout
+        await _generate_and_start_workout(callback.message, state, user_id, count, hints)
+
+
+@router.callback_query(F.data == "workout:general")
+async def cb_workout_general(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    from bot.handlers.workout import start_general_workout
+    await start_general_workout(callback, state, callback.from_user.id)
 
 
 @router.callback_query(F.data == "workout:level_test")
