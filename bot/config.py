@@ -10,6 +10,9 @@ PROXYAPI_KEY = os.getenv("PROXYAPI_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///english_buddy.db")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# Allowed user IDs (empty = everyone allowed)
+ALLOWED_USERS: set[int] = {5265189110}  # @narcolepsyy
+
 OPENAI_BASE_URL = "https://api.proxyapi.ru/openai/v1"
 OPENAI_MODEL = "gpt-4o-mini"
 WHISPER_MODEL = "whisper-1"

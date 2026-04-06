@@ -49,15 +49,26 @@ async def main():
     dp.include_router(translate.router)
     dp.include_router(inline_query.router)
 
-    # Debug: log ALL raw updates
+    # Access control: only allowed users
     from aiogram.types import Update
+    from bot.config import ALLOWED_USERS
+
     @dp.update.outer_middleware()
-    async def log_all_updates(handler, event: Update, data):
-        fields = event.model_dump(exclude_none=True)
-        fields.pop("update_id", None)
-        logger.info(f"UPDATE keys={list(fields.keys())}")
-        if "message_reaction" in fields:
-            logger.info(f"REACTION DATA: {fields['message_reaction']}")
+    async def access_control(handler, event: Update, data):
+        if ALLOWED_USERS:
+            user_id = None
+            if event.message:
+                user_id = event.message.from_user.id if event.message.from_user else None
+            elif event.callback_query:
+                user_id = event.callback_query.from_user.id
+            elif event.inline_query:
+                user_id = event.inline_query.from_user.id
+            elif event.business_message:
+                user_id = event.business_message.from_user.id if event.business_message.from_user else None
+            elif event.business_connection:
+                user_id = event.business_connection.user.id
+            if user_id and user_id not in ALLOWED_USERS:
+                return
         return await handler(event, data)
 
     logger.info("Bot is running!")
