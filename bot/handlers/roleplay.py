@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import logging
 
-from aiogram import Router, F
+import os
+import tempfile
+
+from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from bot.services.groq_client import ask_groq_chat, ask_groq
+from bot.services.groq_client import ask_groq_chat, ask_groq, transcribe_voice
 from bot.utils.prompts import ROLEPLAY_SYSTEM, ROLEPLAY_START, ROLEPLAY_FINISH_SYSTEM
 from bot.keyboards.inline import roleplay_scenarios_keyboard, roleplay_active_keyboard
 from bot.db.database import async_session
@@ -117,17 +120,41 @@ async def custom_roleplay(message: Message, state: FSMContext):
     await message.answer(text, reply_markup=roleplay_active_keyboard())
 
 
+@router.message(RoleplayStates.in_roleplay, F.voice)
+async def roleplay_turn_voice(message: Message, state: FSMContext, bot: Bot):
+    """Handle voice messages in roleplay — transcribe and process."""
+    await message.answer("🎤 Слушаю...")
+    file = await bot.get_file(message.voice.file_id)
+    tmp = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
+    try:
+        await bot.download_file(file.file_path, tmp.name)
+        tmp.close()
+        transcription = await transcribe_voice(tmp.name)
+    finally:
+        os.unlink(tmp.name)
+
+    if not transcription:
+        await message.answer("⚠️ Не удалось распознать речь. Попробуй ещё раз.")
+        return
+
+    await message.answer(f"🎤 \"{transcription}\"")
+    await _roleplay_process(message, state, transcription)
+
+
 @router.message(RoleplayStates.in_roleplay)
 async def roleplay_turn(message: Message, state: FSMContext):
     if not message.text:
         return
+    await _roleplay_process(message, state, message.text)
 
+
+async def _roleplay_process(message: Message, state: FSMContext, user_text: str):
     data = await state.get_data()
     chat_messages = data.get("chat_messages", [])
     user_messages = data.get("user_messages", [])
 
-    chat_messages.append({"role": "user", "content": message.text})
-    user_messages.append(message.text)
+    chat_messages.append({"role": "user", "content": user_text})
+    user_messages.append(user_text)
 
     result = await ask_groq_chat(chat_messages)
     if not result:
@@ -164,6 +191,7 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
     """End roleplay and give evaluation."""
     data = await state.get_data()
     user_messages = data.get("user_messages", [])
+    chat_messages = data.get("chat_messages", [])
     scenario = data.get("scenario", "")
 
     if not user_messages:
@@ -172,14 +200,35 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
         await state.clear()
         return
 
-    conversation = "\n".join(f"User: {m}" for m in user_messages)
+    # Build full conversation with both sides
+    conv_lines = []
+    for msg in chat_messages:
+        if msg["role"] == "system":
+            continue
+        role = "Bot" if msg["role"] == "assistant" else "User"
+        # For assistant messages, extract just the reply from JSON
+        if role == "Bot":
+            try:
+                import json
+                parsed = json.loads(msg["content"]) if msg["content"].startswith("{") else None
+                text = parsed.get("reply", msg["content"]) if parsed else msg["content"]
+            except Exception:
+                text = msg["content"]
+        else:
+            text = msg["content"]
+        conv_lines.append(f"{role}: {text}")
+
+    conversation = "\n".join(conv_lines)
+
+    target = callback_or_message if hasattr(callback_or_message, "answer") else callback_or_message.message
+    await target.answer("🔍 Анализирую диалог...")
+
     result = await ask_groq(
         ROLEPLAY_FINISH_SYSTEM,
-        f"Scenario: {scenario}\nConversation:\n{conversation}",
+        f"Scenario: {scenario}\n\nFull conversation:\n{conversation}",
     )
 
     if not result:
-        target = callback_or_message if hasattr(callback_or_message, "answer") else callback_or_message.message
         await target.answer("⚠️ Не удалось получить оценку.")
         await state.clear()
         return
@@ -189,18 +238,28 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
     weaknesses = result.get("weaknesses", [])
     phrases = result.get("suggested_phrases", [])
     comment = result.get("overall_comment", "")
+    message_analysis = result.get("message_analysis", [])
 
-    key_errors = result.get("key_errors", [])
+    lines = [f"🏁 Оценка: {grade}\n"]
 
-    lines = [f"🏁 Результат: {grade}\n"]
-
-    if key_errors:
-        lines.append("❌ Главные ошибки:")
-        for ke in key_errors[:5]:
-            lines.append(f"  • {ke.get('error', '')} → {ke.get('fix', '')}")
-            if ke.get("rule"):
-                lines.append(f"    📏 {ke['rule']}")
-        lines.append("")
+    # Per-message analysis
+    if message_analysis:
+        lines.append("📝 Разбор по сообщениям:\n")
+        for i, ma in enumerate(message_analysis, 1):
+            said = ma.get("user_said", "")
+            lines.append(f"  {i}. \"{said}\"")
+            errors = ma.get("errors")
+            better = ma.get("better")
+            note = ma.get("note")
+            if errors:
+                lines.append(f"     ❌ {errors}")
+            if better:
+                lines.append(f"     ✅ {better}")
+            if note:
+                lines.append(f"     💬 {note}")
+            if not errors and not better and not note:
+                lines.append(f"     ✅ Всё ок")
+            lines.append("")
 
     if strengths:
         lines.append("💪 Сильные стороны:")
@@ -215,7 +274,7 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
         lines.append("")
 
     if phrases:
-        lines.append("💡 Фразы, которые стоило использовать:")
+        lines.append("💡 Фразы для этого сценария:")
         for p in phrases:
             lines.append(f"  • {p}")
         lines.append("")

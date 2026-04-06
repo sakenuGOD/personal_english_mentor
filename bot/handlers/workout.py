@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -10,7 +12,7 @@ from sqlalchemy import select, func
 
 from bot.db.database import async_session
 from bot.db.models import Error
-from bot.services.groq_client import ask_groq, ask_groq_text
+from bot.services.groq_client import ask_groq, ask_groq_text, transcribe_voice
 from bot.utils.prompts import WORKOUT_SYSTEM
 from bot.services.stats import get_category_name
 
@@ -105,9 +107,36 @@ Respond ONLY in valid JSON:
   "feedback": "Краткий отзыв на русском — что хорошо, что подтянуть"
 }"""
 
+LEVEL_TEST_SPEAKING = """You are evaluating a student's spoken English (transcribed from voice).
+The student was given a question and answered by voice. You see the transcription.
+
+Evaluate: grammar accuracy, vocabulary range, sentence complexity, fluency (can they form full sentences?).
+Be honest — if the answer is short or broken, say so.
+
+Respond ONLY in valid JSON:
+{
+  "grammar_score": 1-10,
+  "vocabulary_score": 1-10,
+  "fluency_score": 1-10,
+  "complexity_score": 1-10,
+  "estimated_level": "A1/A2/B1/B2/C1/C2",
+  "errors": [
+    {"error": "what's wrong", "fix": "how to fix", "type": "grammar/vocabulary/fluency"}
+  ],
+  "feedback": "Краткий отзыв на русском — как строит предложения, какие конструкции использует, что подтянуть"
+}"""
+
+SPEAKING_QUESTIONS = [
+    "Describe your typical morning. What do you usually do after you wake up?",
+    "Tell me about your favorite hobby. Why do you enjoy it?",
+    "What would you do if you won a million dollars?",
+    "Describe a person you admire. Why do you look up to them?",
+    "What are the pros and cons of living in a big city?",
+]
+
 LEVEL_FINAL_SYSTEM = """Based on all test phases, determine the student's English level.
 
-You receive scores from: Grammar test, Vocabulary test, Reading comprehension, Writing evaluation.
+You receive scores from: Grammar test, Vocabulary test, Reading comprehension, Writing evaluation, Speaking evaluation.
 
 Give an HONEST, detailed assessment. Don't inflate the level.
 
@@ -119,7 +148,8 @@ Respond ONLY in valid JSON:
     "grammar": "A1-C2 + краткий комментарий",
     "vocabulary": "A1-C2 + комментарий",
     "reading": "A1-C2 + комментарий",
-    "writing": "A1-C2 + комментарий"
+    "writing": "A1-C2 + комментарий",
+    "speaking": "A1-C2 + комментарий (based on sentence structure and vocabulary in transcribed speech)"
   },
   "summary": "3-4 предложения: общая оценка, главные плюсы и минусы",
   "action_plan": ["конкретное действие 1", "действие 2", "действие 3"]
@@ -134,6 +164,7 @@ class WorkoutStates(StatesGroup):
     level_vocab = State()
     level_reading = State()
     level_writing = State()
+    level_speaking = State()
 
 
 # ═══════════════════════════════════════════
@@ -264,11 +295,12 @@ async def start_level_test(callback_or_message, state: FSMContext, user_id: int)
 
     await target.answer(
         "📋 Тест на уровень английского\n\n"
-        "4 этапа:\n"
+        "5 этапов:\n"
         "1️⃣ Грамматика (8 вопросов)\n"
         "2️⃣ Лексика (6 вопросов)\n"
         "3️⃣ Чтение (текст + 3 вопроса)\n"
-        "4️⃣ Письмо (напиши текст)\n\n"
+        "4️⃣ Письмо (напиши текст)\n"
+        "5️⃣ Говорение (запиши голосовое)\n\n"
         "⏳ Генерирую грамматический тест..."
     )
 
@@ -444,26 +476,13 @@ async def process_level_writing(message: Message, state: FSMContext):
         await message.answer("Напиши текст на английском.")
         return
 
-    await message.answer("🔍 Оцениваю текст и подвожу итоги...")
+    await message.answer("🔍 Оцениваю текст...")
 
     # Evaluate writing
     writing_result = await ask_groq(
         LEVEL_TEST_WRITING,
         f"Topic: Describe your typical day\nStudent's text:\n{message.text}",
     )
-
-    data = await state.get_data()
-
-    # Build final analysis input
-    grammar_answers = data.get("grammar_answers", [])
-    vocab_answers = data.get("vocab_answers", [])
-    reading_answers = data.get("reading_answers", [])
-    grammar_correct = data.get("grammar_correct", 0)
-    vocab_correct = data.get("vocab_correct", 0)
-    reading_correct = data.get("reading_correct", 0)
-    grammar_total = len(data.get("grammar_tasks", []))
-    vocab_total = len(data.get("vocab_tasks", []))
-    reading_total = len(data.get("reading_tasks", []))
 
     # Show writing feedback
     if writing_result:
@@ -485,7 +504,132 @@ async def process_level_writing(message: Message, state: FSMContext):
             lines.append(f"\n💬 {feedback}")
         await message.answer("\n".join(lines))
 
-    # Final level determination
+    await state.update_data(writing_result=writing_result)
+    await _start_speaking_phase(message, state)
+
+
+async def _start_speaking_phase(message: Message, state: FSMContext):
+    """Start speaking phase — ask a question, user records voice."""
+    import random
+    question = random.choice(SPEAKING_QUESTIONS)
+    await state.set_state(WorkoutStates.level_speaking)
+    await state.update_data(speaking_question=question)
+    await message.answer(
+        "5️⃣ ГОВОРЕНИЕ\n\n"
+        "Запиши голосовое сообщение, ответь на вопрос:\n\n"
+        f"🎤 \"{question}\"\n\n"
+        "Говори на английском. Постарайся составить полные предложения."
+    )
+
+
+@router.message(WorkoutStates.level_speaking, F.voice)
+async def process_level_speaking_voice(message: Message, state: FSMContext, bot: Bot):
+    """Process voice answer in level test."""
+    await message.answer("🎤 Слушаю...")
+
+    file = await bot.get_file(message.voice.file_id)
+    tmp = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
+    try:
+        await bot.download_file(file.file_path, tmp.name)
+        tmp.close()
+        transcription = await transcribe_voice(tmp.name)
+    finally:
+        os.unlink(tmp.name)
+
+    if not transcription:
+        await message.answer("⚠️ Не удалось распознать. Попробуй ещё раз или напиши текстом.")
+        return
+
+    await message.answer(f"🎤 \"{transcription}\"\n\n🔍 Оцениваю...")
+
+    data = await state.get_data()
+    question = data.get("speaking_question", "")
+
+    speaking_result = await ask_groq(
+        LEVEL_TEST_SPEAKING,
+        f"Question: {question}\nStudent's spoken answer (transcription):\n{transcription}",
+    )
+
+    if speaking_result:
+        s = speaking_result
+        lines = [
+            "🎤 Оценка говорения:",
+            f"  Грамматика: {s.get('grammar_score', '?')}/10",
+            f"  Лексика: {s.get('vocabulary_score', '?')}/10",
+            f"  Беглость: {s.get('fluency_score', '?')}/10",
+            f"  Сложность: {s.get('complexity_score', '?')}/10",
+        ]
+        errors = s.get("errors", [])
+        if errors:
+            lines.append("\n❌ Ошибки:")
+            for e in errors[:5]:
+                lines.append(f"  • {e.get('error', '')} → {e.get('fix', '')}")
+        feedback = s.get("feedback", "")
+        if feedback:
+            lines.append(f"\n💬 {feedback}")
+        await message.answer("\n".join(lines))
+
+    await state.update_data(speaking_result=speaking_result)
+    await _finish_level_test(message, state)
+
+
+@router.message(WorkoutStates.level_speaking)
+async def process_level_speaking_text(message: Message, state: FSMContext):
+    """Fallback: accept text if user can't record voice."""
+    if not message.text:
+        await message.answer("Запиши голосовое или напиши текстом.")
+        return
+
+    await message.answer("🔍 Оцениваю...")
+
+    data = await state.get_data()
+    question = data.get("speaking_question", "")
+
+    speaking_result = await ask_groq(
+        LEVEL_TEST_SPEAKING,
+        f"Question: {question}\nStudent's answer (text, not voice):\n{message.text}",
+    )
+
+    if speaking_result:
+        s = speaking_result
+        lines = [
+            "📝 Оценка ответа (текстом):",
+            f"  Грамматика: {s.get('grammar_score', '?')}/10",
+            f"  Лексика: {s.get('vocabulary_score', '?')}/10",
+            f"  Сложность: {s.get('complexity_score', '?')}/10",
+        ]
+        errors = s.get("errors", [])
+        if errors:
+            lines.append("\n❌ Ошибки:")
+            for e in errors[:5]:
+                lines.append(f"  • {e.get('error', '')} → {e.get('fix', '')}")
+        feedback = s.get("feedback", "")
+        if feedback:
+            lines.append(f"\n💬 {feedback}")
+        await message.answer("\n".join(lines))
+
+    await state.update_data(speaking_result=speaking_result)
+    await _finish_level_test(message, state)
+
+
+async def _finish_level_test(message: Message, state: FSMContext):
+    """Final level determination after all 5 phases."""
+    data = await state.get_data()
+
+    grammar_answers = data.get("grammar_answers", [])
+    vocab_answers = data.get("vocab_answers", [])
+    reading_answers = data.get("reading_answers", [])
+    grammar_correct = data.get("grammar_correct", 0)
+    vocab_correct = data.get("vocab_correct", 0)
+    reading_correct = data.get("reading_correct", 0)
+    grammar_total = len(data.get("grammar_tasks", []))
+    vocab_total = len(data.get("vocab_tasks", []))
+    reading_total = len(data.get("reading_tasks", []))
+    writing_result = data.get("writing_result")
+    speaking_result = data.get("speaking_result")
+
+    await message.answer("📊 Подвожу итоги...")
+
     analysis_input = f"""Test results:
 Grammar: {grammar_correct}/{grammar_total}
 Wrong grammar topics: {', '.join(a['topic'] for a in grammar_answers if not a['correct'])}
@@ -495,7 +639,9 @@ Wrong vocab topics: {', '.join(a['topic'] for a in vocab_answers if not a['corre
 
 Reading: {reading_correct}/{reading_total}
 
-Writing evaluation: {writing_result if writing_result else 'skipped'}"""
+Writing evaluation: {writing_result if writing_result else 'skipped'}
+
+Speaking evaluation: {speaking_result if speaking_result else 'skipped'}"""
 
     final = await ask_groq(LEVEL_FINAL_SYSTEM, analysis_input)
 
@@ -515,7 +661,7 @@ Writing evaluation: {writing_result if writing_result else 'skipped'}"""
         if breakdown:
             result_lines.append("Детализация:")
             for skill, comment in breakdown.items():
-                emoji = {"grammar": "📏", "vocabulary": "📚", "reading": "📖", "writing": "✏️"}.get(skill, "•")
+                emoji = {"grammar": "📏", "vocabulary": "📚", "reading": "📖", "writing": "✏️", "speaking": "🎤"}.get(skill, "•")
                 result_lines.append(f"  {emoji} {skill.title()}: {comment}")
             result_lines.append("")
 

@@ -231,18 +231,32 @@ ROLEPLAY_START = {
     "project_defense": "You are a professor. A student is defending their project. Ask them to present.",
 }
 
-ROLEPLAY_FINISH_SYSTEM = """Analyze the full roleplay conversation and give a final evaluation.
-Focus on specific errors the user made and how to fix them.
+ROLEPLAY_FINISH_SYSTEM = """Analyze the FULL roleplay conversation and give a detailed evaluation.
+You receive the full dialogue (both Bot and User messages). Analyze EVERY user message.
+
+For EACH user message, check:
+1. Grammar errors (verb forms, tenses, articles, prepositions)
+2. Naturalness (would an American say it like that?)
+3. Did they handle the situation well? (appropriate response, vocabulary)
+4. If they wrote in Russian — note that they couldn't express themselves in English
+
+Be honest and specific. Quote exact phrases from the conversation.
+
 Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
 {
   "grade": "A/B/C/D/F",
-  "strengths": ["strength 1 in Russian", "strength 2"],
-  "weaknesses": ["weakness 1 in Russian", "weakness 2"],
-  "key_errors": [
-    {"error": "what they said wrong", "fix": "how to say it correctly", "rule": "grammar rule in Russian"}
+  "message_analysis": [
+    {
+      "user_said": "exact quote from user",
+      "errors": "что не так — на русском. null если всё ок",
+      "better": "как лучше было сказать. null если всё ок",
+      "note": "комментарий: потерялся, ответил невпопад, использовал русский. null если всё ок"
+    }
   ],
-  "suggested_phrases": ["phrase the user could have used 1", "phrase 2"],
-  "overall_comment": "Overall comment in Russian"
+  "strengths": ["конкретная сильная сторона 1 на русском", "сторона 2"],
+  "weaknesses": ["конкретная слабая сторона 1 — с примером из диалога", "сторона 2"],
+  "suggested_phrases": ["фраза которую стоило использовать в ЭТОМ диалоге 1", "фраза 2"],
+  "overall_comment": "Общий вердикт на русском: 3-5 предложений. Честно, конкретно, с примерами из диалога."
 }"""
 
 VOICE_ANALYSIS_SYSTEM = """You are a strict American English pronunciation coach. Analyze the transcription of spoken English.
