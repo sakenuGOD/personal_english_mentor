@@ -137,8 +137,7 @@ async def roleplay_turn_voice(message: Message, state: FSMContext, bot: Bot):
         await message.answer("⚠️ Не удалось распознать речь. Попробуй ещё раз.")
         return
 
-    await message.answer(f"🎤 \"{transcription}\"")
-    await _roleplay_process(message, state, transcription)
+    await _roleplay_process(message, state, transcription, is_voice=True)
 
 
 @router.message(RoleplayStates.in_roleplay)
@@ -148,7 +147,7 @@ async def roleplay_turn(message: Message, state: FSMContext):
     await _roleplay_process(message, state, message.text)
 
 
-async def _roleplay_process(message: Message, state: FSMContext, user_text: str):
+async def _roleplay_process(message: Message, state: FSMContext, user_text: str, is_voice: bool = False):
     data = await state.get_data()
     chat_messages = data.get("chat_messages", [])
     user_messages = data.get("user_messages", [])
@@ -169,7 +168,10 @@ async def _roleplay_process(message: Message, state: FSMContext, user_text: str)
     chat_messages.append({"role": "assistant", "content": str(result)})
     await state.update_data(chat_messages=chat_messages, user_messages=user_messages)
 
-    lines = [reply]
+    lines = []
+    if is_voice:
+        lines.append(f"🎤 {user_text}\n")
+    lines.append(reply)
 
     if helped:
         lines.append(f"\n💡 Ты мог сказать: {helped}")
@@ -200,6 +202,13 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
         await state.clear()
         return
 
+    # Get message target (for sending messages, not callback toasts)
+    from aiogram.types import CallbackQuery as CQ
+    if isinstance(callback_or_message, CQ):
+        target = callback_or_message.message
+    else:
+        target = callback_or_message
+
     # Build full conversation with both sides
     conv_lines = []
     for msg in chat_messages:
@@ -220,7 +229,6 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
 
     conversation = "\n".join(conv_lines)
 
-    target = callback_or_message if hasattr(callback_or_message, "answer") else callback_or_message.message
     await target.answer("🔍 Анализирую диалог...")
 
     result = await ask_groq(
@@ -283,7 +291,7 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
         lines.append(f"📊 {comment}")
 
     # Save session and give XP
-    user_id = callback_or_message.from_user.id if hasattr(callback_or_message, "from_user") else callback_or_message.message.chat.id
+    user_id = callback_or_message.from_user.id
     async with async_session() as session:
         rp = RoleplaySession(
             user_id=user_id,
@@ -298,7 +306,6 @@ async def finish_roleplay(callback_or_message, state: FSMContext):
 
     await state.clear()
 
-    target = callback_or_message if hasattr(callback_or_message, "answer") else callback_or_message.message
     text = "\n".join(lines)
     # Split if exceeds Telegram limit
     if len(text) <= 4096:
