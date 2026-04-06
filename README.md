@@ -17,7 +17,7 @@ Works in two modes:
 | **Word** | Translation, synonyms, examples, collocations |
 | **What did they mean** | Explain phrases, slang, idioms |
 | **Roleplay** | Role-based dialogues (job interview, restaurant, airport, etc.) with grading |
-| **Voice** | Pronunciation analysis, American accent scoring |
+| **Voice** | Forward a voice message → transcription + translation + explanation |
 | **Workouts** | Exercises based on your mistakes |
 | **Level test** | A1–C2 |
 | **Vocabulary** | Save words + spaced repetition (Leitner system) |
@@ -193,6 +193,7 @@ To find a user's ID, send `/start` to [@userinfobot](https://t.me/userinfobot).
 
 ## Possible improvements
 
+- [ ] Pronunciation scoring (currently transcription-only; real pronunciation assessment requires Azure Speech/SpeechAce API)
 - [ ] PostgreSQL for multiple users
 - [ ] Check caching (don't re-check identical phrases)
 - [ ] Webhook instead of polling
