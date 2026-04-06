@@ -121,7 +121,7 @@ async def handle_business_message(message: Message, bot: Bot):
             return
 
     # Skip short messages
-    if len(text) < 3 or len(text.split()) < 2:
+    if len(text) < 3 or len(text.split()) < 3:
         return
 
     # Skip common short phrases
@@ -298,7 +298,7 @@ async def handle_reaction(event: MessageReactionUpdated, bot: Bot):
         return
 
     text = cached["text"]
-    if len(text) < 3 or len(text.split()) < 2:
+    if len(text) < 3 or len(text.split()) < 3:
         return
 
     async with async_session() as session:
