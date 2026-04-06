@@ -6,9 +6,12 @@ from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from sqlalchemy import select
 
+from bot.db.database import async_session
+from bot.db.models import User
 from bot.services.groq_client import ask_groq
-from bot.utils.prompts import MEANING_SYSTEM
+from bot.utils.prompts import MEANING_SYSTEM, get_topic_hint
 from bot.keyboards.inline import meaning_result_keyboard
 router = Router()
 logger = logging.getLogger(__name__)
@@ -31,7 +34,15 @@ async def process_meaning(message: Message, state: FSMContext):
         return
 
     await message.answer("🤔 Разбираю...")
-    result = await ask_groq(MEANING_SYSTEM, message.text)
+
+    # Get user topic
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == message.from_user.id))
+        user = result.scalar_one_or_none()
+    topic = user.topic_pack if user else "general"
+    prompt = MEANING_SYSTEM + get_topic_hint(topic)
+
+    result = await ask_groq(prompt, message.text)
 
     if not result:
         await message.answer("⚠️ Сервис временно недоступен.")
@@ -40,61 +51,52 @@ async def process_meaning(message: Message, state: FSMContext):
 
     lines = []
 
-    # Meaning
-    meaning = result.get("meaning", "")
+    # Translation first
+    translation = result.get("translation", "")
+    if translation:
+        lines.append(f"💬 \"{message.text}\"")
+        lines.append(f"📝 {translation}")
+        lines.append("")
+
+    # What they meant (if not obvious)
+    meaning = result.get("meaning")
     if meaning:
-        lines.append(f"💬 {meaning}")
-    lines.append("")
+        lines.append(f"🧠 {meaning}")
+        lines.append("")
 
-    # Literal
-    literal = result.get("literal")
-    if literal:
-        lines.append(f"📝 Дословно: {literal}")
-
-    # Type + tone
-    phrase_type = result.get("type", "")
+    # Tone
     tone = result.get("tone", "")
-    tags = []
-    if phrase_type:
-        tags.append(phrase_type)
     if tone:
-        tags.append(tone)
-    if tags:
-        lines.append(f"🏷 {' • '.join(tags)}")
-    lines.append("")
+        lines.append(f"🎭 Тон: {tone}")
+        lines.append("")
 
-    # Word breakdown
+    # Word breakdown (only non-obvious)
     word_breakdown = result.get("word_breakdown", [])
     if word_breakdown:
-        lines.append("🔤 Разбор по словам:")
+        lines.append("🔤 Разбор:")
         for wb in word_breakdown:
             word = wb.get("word", "")
             wmean = wb.get("meaning", "")
             is_slang = wb.get("is_slang", False)
-            origin = wb.get("origin")
+            note = wb.get("note")
             slang_tag = " [сленг]" if is_slang else ""
             lines.append(f"  • {word}{slang_tag} — {wmean}")
-            if origin:
-                lines.append(f"    ↳ {origin}")
+            if note:
+                lines.append(f"    ↳ {note}")
         lines.append("")
 
-    # Examples (ALL in English)
-    examples = result.get("examples", [])
-    if examples:
-        lines.append("📖 Примеры:")
-        for ex in examples[:3]:
-            lines.append(f"  • {ex}")
+    # How to reply — the most useful part
+    replies = result.get("how_to_reply", [])
+    if replies:
+        lines.append("💡 Как ответить:")
+        for r in replies[:3]:
+            lines.append(f"  • {r}")
         lines.append("")
 
-    # Related
-    related = result.get("related", [])
-    if related:
-        lines.append(f"🔗 Похожие: {', '.join(related[:4])}")
-
-    # Note
-    note = result.get("note")
-    if note:
-        lines.append(f"\n💡 {note}")
+    # Cultural note
+    cultural = result.get("cultural_note")
+    if cultural:
+        lines.append(f"🌍 {cultural}")
 
     await state.clear()
     await message.answer("\n".join(lines), reply_markup=meaning_result_keyboard())

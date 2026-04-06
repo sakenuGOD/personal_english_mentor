@@ -81,6 +81,22 @@ If no errors and sounds natural: {"has_errors": false, "native_tip": null, "cons
 AUTOCORRECT_USER = """Mode: {mode}
 User's message: "{text}" """
 
+TOPIC_CONTEXTS = {
+    "general": "",
+    "it": "Context: the user works in IT/programming. Prioritize tech vocabulary, programming terms, startup culture, dev team communication.",
+    "business": "Context: the user works in business. Prioritize business vocabulary, negotiations, emails, presentations, corporate communication.",
+    "travel": "Context: the user is interested in travel. Prioritize travel vocabulary: airports, hotels, restaurants, directions, booking.",
+    "medicine": "Context: the user works in medicine/healthcare. Prioritize medical vocabulary: symptoms, diagnoses, treatments, doctor-patient communication.",
+    "gaming": "Context: the user is a gamer. Prioritize gaming vocabulary: game slang, streaming terms, in-game communication, esports.",
+}
+
+
+def get_topic_hint(topic: str) -> str:
+    """Return topic context string to append to prompts."""
+    hint = TOPIC_CONTEXTS.get(topic, "")
+    return f"\n\n{hint}" if hint else ""
+
+
 HOWTOSAY_SYSTEM = """You translate Russian phrases to English with multiple register variants.
 
 CRITICAL: The "text" field in each variant MUST be in ENGLISH. You are translating FROM Russian TO English.
@@ -139,43 +155,40 @@ IMPORTANT:
 - Give 4-6 synonyms across levels
 - No antonyms"""
 
-MEANING_SYSTEM = """You explain what an English message/phrase/slang means. The user sends something they saw/heard.
+MEANING_SYSTEM = """You explain what an English message/phrase/slang means. The user sends something they saw/heard in a conversation.
+
+Your job: help the user understand what the other person said. Like a friend sitting next to you who explains in Russian.
 
 Rules:
-- Main explanation in Russian, на ты
-- ALL examples MUST be in English only
-- Be concise — meaning first, then details
-- IMPORTANT: Break down EACH individual slang/informal/unusual word separately in "word_breakdown"
-  For each word: what it means, is it slang, where it came from
-- If it's an idiom — give literal translation + actual meaning
-- Explain the tone/vibe (aggressive? friendly? sarcastic?)
+- Everything in Russian, на ты
+- Start with a clear TRANSLATION of the whole phrase
+- Then explain what the person MEANT by it (context, subtext, tone)
+- Break down only non-obvious words (skip "I", "the", "is", "do", "what", "you", etc.)
+- If it's an idiom/slang — explain where it came from
+- Be concise and useful, no filler
 
 Respond ONLY in valid JSON:
 {
-  "meaning": "что вся фраза значит — кратко и понятно на русском",
-  "literal": "дословный перевод (если идиома/сленг), null если обычная фраза",
+  "translation": "перевод всей фразы на русский — как бы это звучало по-русски",
+  "meaning": "что человек имел ввиду, зачем он это сказал, какой посыл. Если фраза простая и перевод всё объясняет — напиши null",
+  "tone": "дружелюбно/нейтрально/грубо/саркастично/формально/игриво",
   "word_breakdown": [
     {
       "word": "the specific word",
-      "meaning": "что это слово значит — на русском",
+      "meaning": "что значит — на русском",
       "is_slang": true/false,
-      "origin": "откуда взялось (кратко, на русском). null если обычное слово"
+      "note": "доп контекст если есть (откуда взялось, когда используют). null если обычное слово"
     }
   ],
-  "type": "idiom/slang/phrasal_verb/colloquial/formal/other",
-  "tone": "friendly/neutral/rude/sarcastic/formal/playful",
-  "examples": [
-    "English example sentence showing usage",
-    "Another English example in context"
-  ],
-  "related": ["similar English phrases or expressions"],
-  "note": "optional — extra context на русском, когда НЕ стоит использовать, etc. null if nothing"
+  "how_to_reply": ["вариант ответа на английском 1", "вариант 2"],
+  "cultural_note": "культурный контекст если есть (почему так говорят, в каких ситуациях). null если не нужно"
 }
 
-IMPORTANT for word_breakdown:
-- Include ONLY words that need explanation (skip obvious words like "I", "the", "is")
-- If a word is slang — clearly say "сленг" and explain
-- If a word has a special meaning in context different from its literal meaning — explain that"""
+IMPORTANT:
+- word_breakdown: ONLY non-obvious words. If the phrase is "but the question is what did you do" — there's nothing to break down, return empty array
+- how_to_reply: 2-3 natural English replies the user could send back. This is the MOST useful part
+- If the phrase is straightforward ("how are you", "see you later") — keep it short, don't overexplain
+- cultural_note: only if there's something genuinely interesting (e.g. "this is a common passive-aggressive phrase in work emails")"""
 
 ROLEPLAY_SYSTEM = """You are playing a role in an English conversation scenario.
 Stay in character. After each user response, continue the dialogue AND evaluate their English.

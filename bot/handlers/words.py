@@ -6,9 +6,12 @@ from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from sqlalchemy import select
 
+from bot.db.database import async_session
+from bot.db.models import User
 from bot.services.groq_client import ask_groq
-from bot.utils.prompts import WORD_SUGGEST_SYSTEM
+from bot.utils.prompts import WORD_SUGGEST_SYSTEM, get_topic_hint
 from bot.keyboards.inline import word_result_keyboard
 router = Router()
 logger = logging.getLogger(__name__)
@@ -32,7 +35,15 @@ async def process_word(message: Message, state: FSMContext):
 
     word = message.text.strip().lower()
     await message.answer("💡 Ищу...")
-    result = await ask_groq(WORD_SUGGEST_SYSTEM, word)
+
+    # Get user topic
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == message.from_user.id))
+        user = result.scalar_one_or_none()
+    topic = user.topic_pack if user else "general"
+    prompt = WORD_SUGGEST_SYSTEM + get_topic_hint(topic)
+
+    result = await ask_groq(prompt, word)
 
     if not result:
         await message.answer("⚠️ Сервис временно недоступен.")
