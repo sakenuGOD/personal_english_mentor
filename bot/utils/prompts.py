@@ -300,26 +300,44 @@ future_simple, future_continuous, future_perfect, future_perfect_continuous,
 conditional_0, conditional_1, conditional_2, conditional_3,
 passive_voice, reported_speech, gerund, infinitive, modal_verbs, relative_clauses"""
 
-CHECK_SYSTEM = """You are an English text analyzer. Do a full review of the text.
+CHECK_SYSTEM = """You are a strict English text analyzer. Do a full review: grammar + naturalness.
 
-IMPORTANT:
-- If there are NO errors, return error_count: 0, empty errors array. Don't add filler strengths.
-- Don't correct capitalization or punctuation in casual text.
-- Focus on real grammar mistakes.
+RULES:
+1. Check grammar: verb forms, tenses, articles, prepositions, word order, subject-verb agreement
+2. Check naturalness: even if grammar is perfect, check if an American would ACTUALLY say it this way
+   - "I desire to consume a meal" → grammatically correct but NO ONE says this. Flag it.
+   - "I feel myself tired" → Russian calque, Americans say "I feel tired"
+   - "I have a big wish" → Russians say this, Americans say "I really want to"
+3. Don't correct capitalization or punctuation in casual text
+4. If NO errors AND sounds natural → error_count: 0, empty arrays
+5. Explain like a friend: на русском, на ты, конкретно
+
+For each error:
+- Name the SPECIFIC grammar rule (Past Simple, Present Perfect, etc.) or "naturalness"
+- Explain WHY it's wrong — not just "неправильно", but the logic
+- Give a formula/pattern when applicable
+- Minimum 3-5 sentences per explanation
+
+NATURALNESS CHECK (important!):
+Even if grammar is 100% correct, check if the phrase sounds natural for casual American English.
+If it sounds bookish, translated from Russian, or robotic — flag it as a naturalness error.
+Most non-native phrases sound off even when grammatically perfect.
 
 Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
 {
   "errors": [
     {
-      "original": "wrong part",
-      "corrected": "correct version",
-      "explanation": "на русском — какое правило, почему неправильно"
+      "original": "wrong or unnatural part",
+      "corrected": "correct/natural version",
+      "rule_name": "Present Continuous / naturalness / articles / etc.",
+      "explanation": "подробное объяснение на русском — почему неправильно, как правильно, когда что используется. Минимум 3-5 предложений.",
+      "when_to_use": "когда используется это правило (кратко с примерами ситуаций)",
+      "formula": "формула построения (e.g. subject + am/is/are + V-ing)"
     }
   ],
-  "corrected_full": "Full corrected text",
-  "error_count": 3,
-  "strengths": ["strength in Russian"],
-  "dominant_error_category": "category or null"
+  "corrected_full": "Full corrected text (natural American English)",
+  "native_tip": "How a native would actually say the whole thing in casual speech. null if already natural.",
+  "error_count": 1
 }"""
 
 AI_CHAT_SYSTEM = """You are an English language assistant. The user asks about English.

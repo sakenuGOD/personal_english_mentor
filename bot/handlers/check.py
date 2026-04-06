@@ -49,22 +49,62 @@ async def process_check(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    lines = []
     errors = result.get("errors", [])
     error_count = result.get("error_count", len(errors))
+    native_tip = result.get("native_tip")
 
-    if error_count == 0 and not errors:
-        lines.append("✅ Всё правильно!")
-    else:
-        for i, e in enumerate(errors, 1):
-            lines.append(f"{i}. ❌ {e.get('original', '')} → ✅ {e.get('corrected', '')}")
-            if e.get("explanation"):
-                lines.append(f"   💡 {e['explanation']}")
-            lines.append("")
+    if error_count == 0 and not errors and not native_tip:
+        await state.clear()
+        await message.answer("✅ Всё правильно, звучит естественно!", reply_markup=check_result_keyboard())
+        return
 
+    sep = "=" * 30
+    lines = [sep, f'"{message.text}"', ""]
+
+    if errors:
+        # Corrections
+        lines.append("Исправления:")
+        for e in errors:
+            lines.append(f"  {e.get('original', '')}  →  {e.get('corrected', '')}")
+
+        # Corrected full
         corrected = result.get("corrected_full", "")
-        if corrected:
-            lines.append(f"✅ Исправленный текст:\n{corrected}")
+        if corrected and corrected.strip().lower() != message.text.strip().lower():
+            lines.append(f"\n✅ {corrected}")
+
+        # Explanations
+        lines.append(f"\n{'─' * 20}")
+        lines.append("Разбор:\n")
+        for e in errors:
+            explanation = e.get("explanation", "")
+            if explanation:
+                lines.append(explanation)
+                lines.append("")
+
+        # Rule, when, formula from first error
+        first = errors[0]
+        rule = first.get("rule_name", "")
+        if rule:
+            lines.append(f"{'─' * 20}")
+            lines.append(f"Правило: {rule}\n")
+
+            when = first.get("when_to_use", "")
+            if when:
+                lines.append(f"Когда: {when}\n")
+
+            formula = first.get("formula", "")
+            if formula:
+                lines.append(f"Формула: {formula}")
+
+    # Native tip
+    if native_tip:
+        if errors:
+            lines.append("")
+        lines.append(f"{'─' * 20}")
+        lines.append("Так звучит естественнее:\n")
+        lines.append(f"  → {native_tip}")
+
+    lines.append(f"\n{sep}")
 
     await state.clear()
     await message.answer("\n".join(lines), reply_markup=check_result_keyboard())
