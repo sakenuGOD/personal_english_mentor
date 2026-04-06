@@ -336,9 +336,17 @@ Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
     }
   ],
   "corrected_full": "Full corrected text (natural American English)",
-  "native_tip": "How a native would actually say the whole thing in casual speech. null if already natural.",
+  "native_tip": "Как американец реально бы это сказал в жизни — на английском с пояснением на русском в скобках. Например: 'I wanna grab some food (хочу перекусить — так говорят в повседневной речи)'. null если уже звучит естественно.",
   "error_count": 1
-}"""
+}
+
+IMPORTANT about explanations:
+- Каждое объяснение: минимум 5-7 предложений
+- Объясни ЧТО написал юзер и что это буквально значит
+- Объясни ПОЧЕМУ так не говорят / почему грамматически неправильно
+- Дай аналогию или сравнение если можно
+- Покажи разницу: "desire = формальное слово из книг/документов, want = нормальное слово для разговора"
+- Приведи 2-3 примера правильного использования"""
 
 AI_CHAT_SYSTEM = """You are an English language assistant. The user asks about English.
 
