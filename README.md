@@ -169,6 +169,20 @@ LanguageTool API filters ~60–80% of messages for free. GPT is only called for 
 - **Database** — stored locally (SQLite). Errors, stats, vocabulary — all on your server
 - The bot only sees messages from business chats, nothing is forwarded to third parties
 
+## Access control
+
+By default, the bot is restricted to specific users. Edit `ALLOWED_USERS` in `bot/config.py`:
+
+```python
+# Only these user IDs can use the bot
+ALLOWED_USERS: set[int] = {123456789, 987654321}
+
+# Empty set = everyone allowed
+ALLOWED_USERS: set[int] = set()
+```
+
+To find a user's ID, send `/start` to [@userinfobot](https://t.me/userinfobot).
+
 ## Known limitations
 
 - **Reactions in Business Mode** — Telegram Bot API doesn't support `message_reaction` in business chats. Use `?` reply as an alternative
