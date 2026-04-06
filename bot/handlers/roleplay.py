@@ -76,9 +76,9 @@ async def begin_roleplay(message_or_callback, state: FSMContext, scenario: str):
     name = scenario_names.get(scenario, scenario)
 
     text = f"🎭 {name}\n\n{reply}"
-    vocab_tip = result.get("vocabulary_tip")
-    if vocab_tip:
-        text += f"\n\n💡 Полезная фраза: {vocab_tip}"
+    hint = result.get("hint")
+    if hint:
+        text += f"\n\n💡 {hint}"
 
     if hasattr(message_or_callback, "answer"):
         await message_or_callback.answer(text, reply_markup=roleplay_active_keyboard())
@@ -114,9 +114,9 @@ async def custom_roleplay(message: Message, state: FSMContext):
     )
 
     text = f"🎭 {scenario}\n\n{reply}"
-    vocab_tip = result.get("vocabulary_tip")
-    if vocab_tip:
-        text += f"\n\n💡 {vocab_tip}"
+    hint = result.get("hint")
+    if hint:
+        text += f"\n\n💡 {hint}"
     await message.answer(text, reply_markup=roleplay_active_keyboard())
 
 
@@ -161,9 +161,7 @@ async def _roleplay_process(message: Message, state: FSMContext, user_text: str,
         return
 
     reply = result.get("reply", "")
-    corrections = result.get("corrections", [])
-    vocab_tip = result.get("vocabulary_tip")
-    helped = result.get("helped_with_russian")
+    hint = result.get("hint")
 
     chat_messages.append({"role": "assistant", "content": str(result)})
     await state.update_data(chat_messages=chat_messages, user_messages=user_messages)
@@ -173,18 +171,8 @@ async def _roleplay_process(message: Message, state: FSMContext, user_text: str,
         lines.append(f"🎤 {user_text}\n")
     lines.append(reply)
 
-    if helped:
-        lines.append(f"\n💡 Ты мог сказать: {helped}")
-
-    if corrections:
-        lines.append("\n📝 Ошибки:")
-        for c in corrections:
-            lines.append(f"  ❌ {c.get('original', '')} → ✅ {c.get('corrected', '')}")
-            if c.get("tip"):
-                lines.append(f"     💡 {c['tip']}")
-
-    if vocab_tip:
-        lines.append(f"\n💡 {vocab_tip}")
+    if hint:
+        lines.append(f"\n💡 {hint}")
 
     await message.answer("\n".join(lines), reply_markup=roleplay_active_keyboard())
 
