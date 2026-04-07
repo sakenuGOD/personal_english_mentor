@@ -38,6 +38,12 @@ class BalanceStates(StatesGroup):
     waiting_initial = State()
 
 
+class TopicTestStates(StatesGroup):
+    waiting_topic = State()
+    waiting_count = State()
+    in_test = State()
+
+
 async def _send_vocab_card(target, state: FSMContext, user_id: int):
     """Pick next due word, randomly choose direction, ask user to type answer."""
     async with async_session() as session:
@@ -236,6 +242,187 @@ async def cb_workout_roleplay(callback: CallbackQuery, state: FSMContext):
         "🎭 Выбери сценарий для диалога:",
         reply_markup=roleplay_scenarios_keyboard(),
     )
+
+
+@router.callback_query(F.data == "workout:topic_test")
+async def cb_topic_test_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await state.set_state(TopicTestStates.waiting_topic)
+    await callback.message.answer(
+        "📌 Тест на тему\n\n"
+        "Опиши тему или ситуацию на которой хочешь потренироваться.\n\n"
+        "Например:\n"
+        "  • Job interview in IT\n"
+        "  • Talking about my hobbies\n"
+        "  • Medical visit\n"
+        "  • Business negotiations\n\n"
+        "Можно на русском или английском:"
+    )
+
+
+@router.message(TopicTestStates.waiting_topic)
+async def cb_topic_test_got_topic(message: Message, state: FSMContext):
+    topic = message.text.strip()
+    await state.update_data(topic=topic)
+    await state.set_state(TopicTestStates.waiting_count)
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="5", callback_data="topictest:count:5"),
+            InlineKeyboardButton(text="10", callback_data="topictest:count:10"),
+            InlineKeyboardButton(text="15", callback_data="topictest:count:15"),
+        ],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu")],
+    ])
+    await message.answer(f"Тема: {topic}\n\nСколько вопросов?", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("topictest:count:"))
+async def cb_topic_test_count(callback: CallbackQuery, state: FSMContext):
+    count = int(callback.data.split(":")[-1])
+    data = await state.get_data()
+    topic = data.get("topic", "")
+    await callback.answer()
+    await callback.message.edit_text(f"Тема: {topic} | Вопросов: {count}\n\n⏳ Генерирую тест...")
+
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import TOPIC_TEST_SYSTEM
+    result = await ask_groq(TOPIC_TEST_SYSTEM, f"Topic: {topic}. Number of questions: {count}")
+
+    if not result or not result.get("questions"):
+        await callback.message.answer("⚠️ Не удалось сгенерировать тест. Попробуй ещё раз.")
+        await state.clear()
+        return
+
+    questions = result.get("questions", [])[:count]
+    title = result.get("topic_title", topic)
+
+    await state.set_state(TopicTestStates.in_test)
+    await state.update_data(
+        questions=questions,
+        current_q=0,
+        correct=0,
+        topic_title=title,
+    )
+    await callback.message.answer(f"📌 {title}\n{len(questions)} вопросов. Поехали!")
+    await _send_topic_question(callback.message, state)
+
+
+async def _send_topic_question(target, state: FSMContext):
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    idx = data.get("current_q", 0)
+
+    if idx >= len(questions):
+        return
+
+    q = questions[idx]
+    question_text = q.get("question", "")
+    options = q.get("options", [])
+
+    lines = [f"❓ Вопрос {idx + 1}/{len(questions)}\n", question_text, ""]
+    for i, opt in enumerate(options):
+        lines.append(f"  {i + 1}. {opt}")
+    lines.append("\nНапиши номер ответа:")
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏹ Завершить тест", callback_data="topictest:stop")],
+    ])
+    await target.answer("\n".join(lines), reply_markup=kb)
+
+
+@router.message(TopicTestStates.in_test)
+async def cb_topic_test_answer(message: Message, state: FSMContext):
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    idx = data.get("current_q", 0)
+    correct_count = data.get("correct", 0)
+
+    if idx >= len(questions):
+        await state.clear()
+        return
+
+    q = questions[idx]
+    options = q.get("options", [])
+    answer = q.get("answer", "")
+    explanation = q.get("explanation", "")
+
+    user_input = message.text.strip()
+    user_answer = None
+
+    # Accept number or text
+    if user_input.isdigit():
+        n = int(user_input) - 1
+        if 0 <= n < len(options):
+            user_answer = options[n]
+    else:
+        # Try to match by text
+        for opt in options:
+            if user_input.lower() in opt.lower() or opt.lower() in user_input.lower():
+                user_answer = opt
+                break
+
+    if user_answer is None:
+        await message.answer("Напиши номер ответа (1, 2, 3 или 4)")
+        return
+
+    is_correct = user_answer == answer
+    if is_correct:
+        correct_count += 1
+        feedback = f"✅ Правильно!\n💡 {explanation}" if explanation else "✅ Правильно!"
+    else:
+        feedback = f"❌ Неправильно.\nПравильный ответ: {answer}\n💡 {explanation}" if explanation else f"❌ Неправильно. Правильный ответ: {answer}"
+
+    idx += 1
+    await state.update_data(current_q=idx, correct=correct_count)
+
+    if idx >= len(questions):
+        # Finished
+        total = len(questions)
+        pct = round(correct_count / total * 100)
+        grade = "A" if pct >= 90 else "B" if pct >= 75 else "C" if pct >= 60 else "D" if pct >= 40 else "F"
+        title = data.get("topic_title", "")
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔄 Ещё раз", callback_data="workout:topic_test"),
+                InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+            ],
+        ])
+        await message.answer(feedback)
+        await message.answer(
+            f"🏁 Тест завершён!\n\n"
+            f"Тема: {title}\n"
+            f"Результат: {correct_count}/{total} ({pct}%) — {grade}",
+            reply_markup=kb,
+        )
+        await state.clear()
+        return
+
+    await message.answer(feedback)
+    await _send_topic_question(message, state)
+
+
+@router.callback_query(F.data == "topictest:stop")
+async def cb_topic_test_stop(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    idx = data.get("current_q", 0)
+    correct_count = data.get("correct", 0)
+    await callback.answer()
+    total = len(questions)
+    pct = round(correct_count / idx * 100) if idx > 0 else 0
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
+    ])
+    await callback.message.answer(
+        f"Тест прерван.\nОтвечено: {idx}/{total}, правильно: {correct_count} ({pct}%)",
+        reply_markup=kb,
+    )
+    await state.clear()
 
 
 @router.callback_query(F.data == "workout:skip")

@@ -232,16 +232,21 @@ ROLEPLAY_START = {
     "project_defense": "You are a professor. A student is defending their project. Ask them to present.",
 }
 
-ROLEPLAY_FINISH_SYSTEM = """Analyze the FULL roleplay conversation and give a detailed evaluation.
-You receive the full dialogue (both Bot and User messages). Analyze EVERY user message.
+ROLEPLAY_FINISH_SYSTEM = """You are a strict English teacher evaluating a roleplay dialogue. No flattery, no encouragement — only honest, specific analysis.
 
-For EACH user message, check:
-1. Grammar errors (verb forms, tenses, articles, prepositions)
-2. Naturalness (would an American say it like that?)
-3. Did they handle the situation well? (appropriate response, vocabulary)
-4. If they wrote in Russian — note that they couldn't express themselves in English
+Analyze EVERY user message. For each one:
+1. List ALL grammar errors with the exact rule broken (wrong tense, wrong preposition, missing article, subject-verb agreement, etc.)
+2. Check naturalness — would a native speaker say it exactly like that?
+3. Was the response appropriate for the situation?
+4. Russian used instead of English = automatic fail for that message
 
-Be honest and specific. Quote exact phrases from the conversation.
+RULES:
+- Do NOT write things like "пользователь старался" or "желание общаться" — useless filler
+- Do NOT praise the user unless they said something genuinely excellent
+- "strengths" — only mention if there is a REAL strength (used complex tense correctly, appropriate vocabulary, etc.). If nothing stands out, leave the array empty []
+- "weaknesses" — list every pattern of mistakes with a concrete quote from the dialogue
+- "overall_comment" — a direct verdict: what the user CAN'T do yet and what they MUST practice. Like a coach after training. 2-3 sentences max, no sugar-coating.
+- Grade honestly: C means significant problems. D/F if communication failed.
 
 Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
 {
@@ -249,15 +254,15 @@ Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
   "message_analysis": [
     {
       "user_said": "exact quote from user",
-      "errors": "что не так — на русском. null если всё ок",
-      "better": "как лучше было сказать. null если всё ок",
-      "note": "комментарий: потерялся, ответил невпопад, использовал русский. null если всё ок"
+      "errors": "КОНКРЕТНО что не так: назови правило, объясни почему неправильно. null только если реально всё ок",
+      "better": "точная правильная фраза. null если всё ок",
+      "note": "доп. комментарий: потерялся в сценарии, ответил невпопад, использовал русский. null если не нужно"
     }
   ],
-  "strengths": ["конкретная сильная сторона 1 на русском", "сторона 2"],
-  "weaknesses": ["конкретная слабая сторона 1 — с примером из диалога", "сторона 2"],
-  "suggested_phrases": ["фраза которую стоило использовать в ЭТОМ диалоге 1", "фраза 2"],
-  "overall_comment": "Общий вердикт на русском: 3-5 предложений. Честно, конкретно, с примерами из диалога."
+  "strengths": [],
+  "weaknesses": ["конкретный паттерн ошибок — с цитатой из диалога", "ещё один паттерн"],
+  "suggested_phrases": ["фраза которую НАДО было использовать в этом конкретном сценарии", "ещё одна"],
+  "overall_comment": "Прямой вердикт: что не умеет, что учить. Без похвалы."
 }"""
 
 PHRASE_OF_DAY_SYSTEM = """Generate one English idiom or colloquial phrase for a daily lesson.
@@ -504,6 +509,24 @@ Respond ONLY in valid JSON:
   "weaknesses": ["конкретное слабое место 1 — с примером", "место 2"],
   "main_problem": "главная проблема — что чаще всего мешает",
   "action_plan": ["конкретное действие 1 (например: повтори правило Past Simple — после did всегда начальная форма)", "действие 2", "действие 3"]
+}"""
+
+TOPIC_TEST_SYSTEM = """You are an English quiz generator. Create a multiple-choice quiz on a specific topic described by the user.
+
+Generate exactly the number of questions requested. Each question must be practical and relevant to the described topic.
+Mix question types: vocabulary, grammar in context, typical phrases for this topic.
+
+Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
+{
+  "topic_title": "краткое название темы на русском",
+  "questions": [
+    {
+      "question": "Question text in English",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "answer": "Option A",
+      "explanation": "Краткое объяснение на русском почему именно этот ответ"
+    }
+  ]
 }"""
 
 FAQ_TEXT = """📖 Что делает каждая кнопка:

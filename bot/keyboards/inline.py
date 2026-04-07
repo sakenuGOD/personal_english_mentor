@@ -88,6 +88,7 @@ def workout_menu_keyboard(challenge_done: bool = False) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🇷🇺→🇬🇧 Переведи фразу", callback_data="workout:translation")],
         [InlineKeyboardButton(text="📋 Тест на уровень", callback_data="workout:level_test")],
         [InlineKeyboardButton(text="🎭 Диалог-тренировка", callback_data="workout:roleplay")],
+        [InlineKeyboardButton(text="📌 Тест на тему", callback_data="workout:topic_test")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
     ])
 
