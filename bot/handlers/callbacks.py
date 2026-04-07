@@ -1296,9 +1296,9 @@ async def cb_mistakes(callback: CallbackQuery, state: FSMContext):
                 await callback.message.edit_text("✅ Повторяющихся нет!", reply_markup=mistakes_keyboard())
                 await callback.answer()
                 return
-            lines = ["🔄 Повторяющиеся:\n"]
+            lines = ["🔄 Повторяющиеся ошибки:\n"]
             for orig, corr, cat, cnt in reps:
-                lines.append(f"❌ {orig} → ✅ {corr} (×{cnt})")
+                lines.append(f"❌ {orig}  →  ✅ {corr}  (×{cnt})")
                 lines.append(f"   {get_category_name(cat)}")
                 lines.append("")
             await callback.message.edit_text("\n".join(lines), reply_markup=mistakes_keyboard())
@@ -1332,8 +1332,12 @@ async def cb_mistakes(callback: CallbackQuery, state: FSMContext):
 
     lines = [f"📓 {period_names.get(period, period)}:\n"]
     for e in errors:
-        lines.append(f"❌ {e.original_text} → ✅ {e.corrected_text}")
-        lines.append(f"   {get_category_name(e.category)}")
+        lines.append(f"❌ {e.original_text}")
+        lines.append(f"✅ {e.corrected_text}")
+        if e.short_explanation:
+            lines.append(f"💡 {e.short_explanation}")
+        elif e.category:
+            lines.append(f"   {get_category_name(e.category)}")
         lines.append("")
 
     text = "\n".join(lines)
