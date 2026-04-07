@@ -16,7 +16,9 @@ SKIP_RULES = {
     # ── Chat-friendly: skip casing/style in casual messages ──
     "I_LOWERCASE",                    # "i" instead of "I" — normal in chat
     "MORFOLOGIK_RULE_EN_US",          # spell-check: too many false positives on slang/names
-    "EN_CONTRACTION_SPELLING",        # "dont" vs "don't" — fine in chat
+    # EN_CONTRACTION_SPELLING intentionally NOT skipped:
+    # "dont"/"cant"/"wont" → triggers GPT gate. GPT in balanced mode won't flag it,
+    # but may catch real grammar errors in the same sentence (e.g. wrong prepositions).
     "WORD_CONTAINS_UNDERSCORE",       # code/usernames
     "EN_UNPAIRED_BRACKETS",           # casual punctuation
     "EN_A_VS_AN",                     # too aggressive, often wrong on acronyms

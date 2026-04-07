@@ -7,9 +7,11 @@ Correction modes:
 - aggressive: catch everything (grammar, articles, prepositions, word order, punctuation, style)
 - balanced: ONLY real grammar mistakes that change meaning or are clearly wrong:
   ✅ CORRECT: wrong verb form ("I didn't knew" → "know"), subject-verb disagreement ("she have" → "has"), wrong tense, wrong preposition that changes meaning
-  ❌ DO NOT CORRECT: capitalization, punctuation (periods, commas, question marks), informal spelling, chat abbreviations (u, ur, gonna, wanna), contractions, word order that's still understandable
+  ❌ DO NOT CORRECT: capitalization, punctuation (periods, commas, question marks), informal spelling, chat abbreviations (u, ur, gonna, wanna), contractions (dont/cant/wont/its without apostrophe), word order that's still understandable
   Example: "hello how are you doing" has ZERO errors in balanced mode — it's perfectly fine casual English. Return has_errors: false.
   Example: "i'm a vibe coder" — the lowercase "i" is NOT an error in balanced mode.
+  Example: "i dont know how to show this to you" — "dont" is fine, no errors. Return has_errors: false.
+  Example: "i dont know how to show this at you" — "dont" is fine, but "show this at you" → "show this to you" IS an error (wrong preposition). Return has_errors: true.
 - silent: same as aggressive but format for digest
 - teacher: same as aggressive but add teaching content
 
