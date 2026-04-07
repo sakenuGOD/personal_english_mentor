@@ -16,9 +16,7 @@ SKIP_RULES = {
     # ── Chat-friendly: skip casing/style in casual messages ──
     "I_LOWERCASE",                    # "i" instead of "I" — normal in chat
     "MORFOLOGIK_RULE_EN_US",          # spell-check: too many false positives on slang/names
-    # EN_CONTRACTION_SPELLING intentionally NOT skipped:
-    # "dont"/"cant"/"wont" → triggers GPT gate. GPT in balanced mode won't flag it,
-    # but may catch real grammar errors in the same sentence (e.g. wrong prepositions).
+    "EN_CONTRACTION_SPELLING",        # "dont" vs "don't" — TYPOS category, gate now uses GRAMMAR-only filter
     "WORD_CONTAINS_UNDERSCORE",       # code/usernames
     "EN_UNPAIRED_BRACKETS",           # casual punctuation
     "EN_A_VS_AN",                     # too aggressive, often wrong on acronyms
@@ -176,14 +174,35 @@ _WRONG_PREPOSITIONS = {
     "consist from": "consist of", "consist in": "consist of",
     "consists from": "consists of", "consists in": "consists of",
     "arrived to": "arrived at/in", "arrive to": "arrive at/in",
-    "arrive to": "arrive at/in", "arrive at home": "arrive home",
+    "arrive at home": "arrive home",
     "married with": "married to",
     "interested for": "interested in",
+    "interested on": "interested in",
     "listen the": "listen to the", "listen a": "listen to a",
     "discuss about": "discuss (without about)",
     "enter to": "enter (without to)", "enter into the": "enter the",
     "explain me": "explain to me",
     "apologize him": "apologize to him", "apologize her": "apologize to her",
+    # Common ESL preposition errors
+    "good in": "good at",              # "I'm good in math" → "good at math"
+    "bad in": "bad at",
+    "focus in": "focus on",
+    "focused in": "focused on",
+    "focusing in": "focusing on",
+    "afraid from": "afraid of",
+    "tired from": "tired of",
+    "bored from": "bored of",
+    "dream of going": None,            # correct — don't flag
+    "think on": "think about",
+    "concentrate in": "concentrate on",
+    "insist in": "insist on",
+    "rely in": "rely on",
+    "rely at": "rely on",
+    "compete to": "compete with/against",
+    "dream on": None,                  # colloquial, skip
+    "wait on": None,                   # also valid (meaning serve)
+    "bored of": None,                  # correct
+    "search": None,                    # search for / search = both fine
 }
 
 # Collective nouns that are always plural in English
@@ -304,6 +323,23 @@ _AM_ADJECTIVE_ERRORS = {
 
 # told + that (missing object: "she told that" → "she told me/him/us that")
 _TELL_TRIGGERS = {"told", "tell", "tells"}
+
+# Transitive verbs that take indirect object with "to", not "at"
+# "show it at me" → "show it to me"; "give it at you" → "give it to you"
+_VERBS_TO_NOT_AT = {
+    "show", "give", "send", "explain", "introduce", "lend", "offer",
+    "pass", "read", "write", "bring", "teach", "sell", "pay", "hand",
+    "forward", "return", "recommend", "describe", "mention", "report",
+    "present", "tell", "say",
+}
+
+# Non-person subjects for "tell that" — these don't need an object
+_TELL_NON_PERSON = {
+    "story", "sign", "data", "text", "book", "article", "news", "report",
+    "study", "research", "survey", "history", "record", "evidence",
+    "result", "results", "fact", "facts", "analysis", "paper", "letter",
+    "email", "message", "note", "document", "chart", "graph", "poll",
+}
 
 # "verb + to + store/school/hospital..." → missing article "the"
 _PLACE_NEEDS_ARTICLE = {
@@ -761,11 +797,13 @@ def _check_patterns(text: str) -> list[str]:
 
         # ── Pattern 50: "told/tell + that" without object ──
         # "she told that she was tired" → "she told me/him that..."
+        # BUT: "The story/sign told that..." is grammatically fine (inanimate subject)
         if w in _TELL_TRIGGERS and nxt == "that":
-            errors.append(
-                f"{w} that → {w} + объект + that "
-                f"(tell всегда требует объекта: told me/him/her/us that...)"
-            )
+            if prev not in _TELL_NON_PERSON:
+                errors.append(
+                    f"{w} that → {w} + объект + that "
+                    f"(tell всегда требует объекта: told me/him/her/us that...)"
+                )
 
         # ── Pattern 51: redundant pairs ──
         # Checked below as multi-word — but catch "very much + adj" in loop
@@ -854,6 +892,80 @@ def _check_patterns(text: str) -> list[str]:
                     errors.append(
                         f"{w} {nxt} {nxt2} → {w} the {nxt} {nxt2} (супerlative/only требует 'the')"
                     )
+
+        # ── Pattern 68: transitive verb + ... + "at" + pronoun (should be "to") ──
+        # "show this at you" → "show this to you"
+        # "explain it at me" → "explain it to me"
+        # "give the book at her" → "give the book to her"
+        if w == "at" and nxt in ("me", "you", "him", "her", "us", "them"):
+            # Look back up to 6 words for a triggering verb
+            for j in range(max(0, i - 6), i):
+                if words[j] in _VERBS_TO_NOT_AT:
+                    errors.append(f"... at {nxt} → ... to {nxt} (нужен to, не at)")
+                    break
+
+        # ── Pattern 69: "much + countable plural noun" ──
+        # "much students" → "many students"; "much cars" → "many cars"
+        if w == "much" and nxt and nxt.endswith("s") and len(nxt) > 3:
+            # Skip if it's an uncountable noun (those can use "much")
+            # Skip words that end in -s but aren't plurals
+            _NOT_PLURAL_S = {"us", "yes", "this", "always", "because", "thus", "focus",
+                             "bonus", "campus", "nexus", "status", "virus", "genus",
+                             "analysis", "basis", "crisis", "thesis", "series", "species"}
+            if nxt not in _NOT_PLURAL_S and nxt not in _UNCOUNTABLE_NOUNS:
+                # Strip -es/-ies to check if it's a real plural
+                base_s = nxt[:-1] if not nxt.endswith(("ies", "ses", "xes", "zes", "ches", "shes")) else nxt
+                if not base_s.endswith(("ness", "tion", "sion", "ment", "ity")):
+                    errors.append(f"much {nxt} → many {nxt} (с исчисляемыми — many)")
+
+        # ── Pattern 70: "many + uncountable noun" ──
+        # "many informations" → "much information" / "a lot of information"
+        # "many advice" → "a lot of advice"
+        if w in ("many", "several", "numerous", "few") and nxt in _UNCOUNTABLE_NOUNS:
+            errors.append(f"{w} {nxt} → much/a lot of {nxt} ({nxt} — неисчисляемое, нельзя с {w})")
+
+        # ── Pattern 71: "ed/ing adjective confusion" ──
+        # "I am boring" (= I'm a boring person) vs "I am bored" (= feeling bored)
+        # "she is very interesting" (= she causes interest in others) vs "interested" (she feels interest)
+        _ED_ING_PAIRS = {
+            "boring": "bored", "exciting": "excited", "interesting": "interested",
+            "confusing": "confused", "tiring": "tired", "frustrating": "frustrated",
+            "annoying": "annoyed", "surprising": "surprised", "shocking": "shocked",
+            "disappointing": "disappointed", "depressing": "depressed",
+            "embarrassing": "embarrassed", "exhausting": "exhausted",
+            "overwhelming": "overwhelmed", "satisfying": "satisfied",
+        }
+        _ADVERBS_BEFORE_ADJ = {"very", "really", "so", "quite", "pretty", "extremely", "super"}
+        be_verbs_set = {"am", "is", "are", "was", "were", "feel", "feels", "felt"}
+        # Only flag when subject is a PERSON pronoun — things (books, movies) CAN be boring/interesting
+        _PERSON_SUBJECTS_71 = {"i", "he", "she", "we", "they", "you"}
+        # Direct: "I am boring" / "he was boring"
+        if prev in _PERSON_SUBJECTS_71 and w in be_verbs_set and nxt in _ED_ING_PAIRS:
+            ed_form = _ED_ING_PAIRS[nxt]
+            errors.append(
+                f"{w} {nxt} → возможно {w} {ed_form}? "
+                f"({nxt} = вызывает чувство, {ed_form} = чувствуешь сам)"
+            )
+        # With adverb: "I am very interesting (in)" — only when subject is person
+        if prev in _PERSON_SUBJECTS_71 and w in be_verbs_set and nxt in _ADVERBS_BEFORE_ADJ and nxt2 in _ED_ING_PAIRS:
+            ed_form = _ED_ING_PAIRS[nxt2]
+            # Only flag if followed by "in" — "I am very interesting in sth" is likely "interested in"
+            nxt3 = words[i + 3] if i + 3 < len(words) else ""
+            if nxt3 == "in":
+                errors.append(
+                    f"{w} {nxt} {nxt2} in → возможно {w} {nxt} {ed_form} in? "
+                    f"({nxt2} = вызывает интерес у других, {ed_form} = сам испытываешь)"
+                )
+
+        # ── Pattern 72: "he/she/it + dont/doesnt/cant/wont/isnt" (agreement + contraction) ──
+        # "he dont like it" → "he doesn't like it"
+        # "she cant go" → "she can't go" (contraction issue, but also wrong for 3rd person in some contexts)
+        _THIRD_PERSON_CONTRACTION_MAP = {
+            "dont": "doesn't", "doesnt": "doesn't",
+        }
+        if w in ("he", "she", "it") and nxt in _THIRD_PERSON_CONTRACTION_MAP:
+            correct_form = _THIRD_PERSON_CONTRACTION_MAP[nxt]
+            errors.append(f"{w} {nxt} → {w} {correct_form} (3-е лицо: doesn't, не don't)")
 
     # ── Pattern 23: wrong verb-preposition collocations (multi-word) ──
     for wrong, correct in _WRONG_PREPOSITIONS.items():
@@ -1039,6 +1151,7 @@ async def check_local(text: str) -> list[dict] | None:
             "original": text[m.get("offset", 0):m.get("offset", 0) + m.get("length", 0)],
             "replacements": replacements,
             "rule": rule_id,
+            "category": category_id,   # keep category for gate filtering
             "message": m.get("message", ""),
         })
     return errors
@@ -1048,11 +1161,20 @@ async def check_local(text: str) -> list[dict] | None:
 #  COMBINED CHECKER
 # ═══════════════════════════════════════════════
 
+# Categories that represent real grammar errors (trigger GPT call).
+# TYPOS (contractions, spelling), CASING, STYLE, TYPOGRAPHY → style only → skip.
+_GRAMMAR_CATEGORIES = {"GRAMMAR", "SEMANTICS"}
+
 async def has_errors(text: str) -> bool:
     """
     2-layer grammar error detector:
-    1. Pattern checker  — instant, free, 65+ ESL-specific patterns
-    2. LanguageTool API — fast, free, 5000+ rule-based errors
+    1. Pattern checker  — instant, free, 70+ ESL-specific patterns
+    2. LanguageTool API — fast, free, only GRAMMAR category matches trigger GPT
+
+    Gate logic: only real GRAMMAR errors send message to GPT.
+    TYPOS (missing apostrophe "dont"), CASING, STYLE → ignored as style-only.
+    This prevents wasting GPT calls on casual contractions while still catching
+    real grammar errors that appear alongside them.
 
     Returns True if errors found, False if clean, True if API failed (safe fallback).
     """
@@ -1070,8 +1192,11 @@ async def has_errors(text: str) -> bool:
     lt_errors = await check_local(text)
     if lt_errors is None:
         return True  # API failed → send to GPT to be safe
-    if lt_errors:
-        logger.info(f"[L2-LT] found: {[(e['rule'], e['original']) for e in lt_errors]}")
+
+    # Only real GRAMMAR/SEMANTICS errors trigger GPT — not TYPOS, CASING, STYLE
+    grammar_errors = [e for e in lt_errors if e.get("category") in _GRAMMAR_CATEGORIES]
+    if grammar_errors:
+        logger.info(f"[L2-LT-GRAMMAR] found: {[(e['rule'], e['original']) for e in grammar_errors]}")
         return True
 
     return False
