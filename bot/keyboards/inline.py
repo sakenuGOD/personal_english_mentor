@@ -79,8 +79,10 @@ def progress_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def workout_menu_keyboard() -> InlineKeyboardMarkup:
+def workout_menu_keyboard(challenge_done: bool = False) -> InlineKeyboardMarkup:
+    challenge_text = "✅ Задание дня выполнено" if challenge_done else "🌅 Задание дня (+30 XP)"
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=challenge_text, callback_data="workout:daily_challenge")],
         [InlineKeyboardButton(text="📝 Тест по ошибкам", callback_data="workout:test")],
         [InlineKeyboardButton(text="🎯 Общая тренировка", callback_data="workout:general")],
         [InlineKeyboardButton(text="🇷🇺→🇬🇧 Переведи фразу", callback_data="workout:translation")],

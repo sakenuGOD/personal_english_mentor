@@ -258,47 +258,6 @@ Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
   "overall_comment": "Общий вердикт на русском: 3-5 предложений. Честно, конкретно, с примерами из диалога."
 }"""
 
-VOICE_ANALYSIS_SYSTEM = """You are a strict American English pronunciation coach. Analyze the transcription of spoken English.
-Your goal: help the user sound like a native American English speaker. Be brutally honest.
-
-IMPORTANT — be VERY strict about American accent:
-- Default score: 4/10. Most non-native speakers deserve 3-5.
-- Score 7+ only if it would genuinely fool an American.
-- Score 9-10 basically never for non-native speakers.
-- 1-3: Heavy accent, sounds foreign
-- 4-5: Understandable but clearly non-native
-- 6-7: Good, only minor accent traces
-- 8-9: Near-native American accent
-- 10: Indistinguishable from native
-
-Check EVERY word for:
-- "th" sounds (most Russians say "z/s/d/t" instead)
-- "r" sounds (American R is retroflex, not rolled)
-- "w" vs "v" confusion
-- Short vs long vowels ("ship" vs "sheep", "bit" vs "beat")
-- Word stress (Americans stress differently than textbooks teach)
-- Connected speech (linking, reductions: "gonna", "wanna", "shoulda")
-- Intonation patterns (American English has specific rhythm)
-
-Even if every word is pronounced "correctly" by textbook standards — if it sounds robotic, overly formal, or has a slavic rhythm, POINT IT OUT.
-
-Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
-{
-  "transcribed": "what was actually said",
-  "intended": "what they likely meant to say",
-  "pronunciation_issues": [
-    {
-      "word": "the word",
-      "sound": "which specific sound is wrong — e.g. 'th' pronounced as 'z', hard 'r' instead of soft American 'r'",
-      "said_like": "how it sounded (e.g. 'zis' instead of 'this')",
-      "should_be": "how an American would say it (e.g. 'this' with tongue between teeth, soft 'th')",
-      "tip": "Конкретная инструкция на русском: куда поставить язык, как выдыхать, на ты"
-    }
-  ],
-  "score": 4,
-  "overall_tip": "Главная проблема и как её исправить — строго, конкретно, на русском, на ты"
-}"""
-
 PHRASE_OF_DAY_SYSTEM = """Generate one English idiom or colloquial phrase for a daily lesson.
 Make it genuinely useful in modern everyday English — casual conversation, work chat, or social media.
 Avoid clichés like "break a leg" or "piece of cake" — pick something fresh and practical.
@@ -372,6 +331,22 @@ Respond ONLY in valid JSON:
 {
   "focus_rule": "Конкретное правило для изучения на следующей неделе — на русском, 2-3 предложения с примером",
   "motivation": "Честная мотивационная строка — без пустых похвал, на русском"
+}"""
+
+DAILY_CHALLENGE_SYSTEM = """Create a single daily English grammar challenge for a student.
+Base the challenge on the student's weak categories if provided, otherwise pick a common problem area.
+
+The challenge must be a fill-in-the-blank with 3-4 options to choose from.
+Make it practical — a sentence someone might actually say.
+
+Respond ONLY in valid JSON:
+{
+  "sentence": "I ___ to the gym every morning.",
+  "options": ["go", "goes", "going", "went"],
+  "answer": "go",
+  "rule_name": "Present Simple — I/you/we/they",
+  "explanation": "3-4 предложения на русском — почему именно этот ответ, логика выбора времени",
+  "xp_reward": 30
 }"""
 
 TRANSLATE_SYSTEM = """You are a translator. Detect the language of the input.
@@ -539,25 +514,29 @@ FAQ_TEXT = """📖 Что делает каждая кнопка:
 
 💡 Слово — введи слово (рус/англ), получи перевод, синонимы, примеры, сочетания.
 
-🤔 Что имел ввиду — скинь фразу/сленг на английском, бот объяснит что это значит.
+🤔 Что имел ввиду — скинь фразу/сленг на английском, бот объяснит что это значит и как ответить.
 
 📊 Прогресс — твоя статистика + тренировки:
   • 🎯 Провериться — тест по ошибкам, диалог, тест на уровень
   • 🔍 Анализ — AI оценит сильные/слабые стороны
-  • 📚 Словарь — повторение слов (карточки)
-  • 📓 Ошибки — журнал всех ошибок
+  • 📚 Словарь — повторение слов (карточки с вводом ответа)
+  • 📓 Ошибки — журнал всех ошибок с фильтрами
+  • 🗺 Грамматика — карта использованных конструкций
+  • 📊 Неделя — сравнение этой недели с прошлой
+  • 🌅 Задание дня — ежедневный вызов +30 XP
 
-⚙️ Настройки:
-  • Режим коррекции (агрессивный/сбалансированный/тихий/учитель)
-  • Формальность, тема, уведомления
-  • 🔑 Gemini API ключ (обязателен)
-
-🎤 Голосовое сообщение — анализ произношения.
+🎤 Голосовое сообщение — бот транскрибирует и объясняет смысл / переводит.
 
 Просто текст без кнопки — автоперевод RU↔EN.
 
+Телеграм Business:
+  Подключи бот как Business-бота — он будет проверять твои сообщения в чатах.
+  ? (или reply "?") на своё сообщение → проверить его
+  ? на сообщение собеседника → объяснить что он имел ввиду
+
 /vocab — повторение слов
 /mistakes — журнал ошибок
+/mistakes <слово> — поиск ошибок по ключевому слову
 /stats — статистика
 /settings — настройки
 /faq — эта справка"""

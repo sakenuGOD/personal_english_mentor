@@ -171,8 +171,14 @@ async def cb_progress_mistakes(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "progress:workout_menu")
 async def cb_progress_workout_menu(callback: CallbackQuery, state: FSMContext):
+    from datetime import date
     await callback.answer()
-    await callback.message.answer("🎯 Выбери тренировку:", reply_markup=workout_menu_keyboard())
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == callback.from_user.id))
+        user = result.scalar_one_or_none()
+    today = date.today()
+    challenge_done = bool(user and user.challenge_last_sent and user.challenge_last_sent >= today)
+    await callback.message.answer("🎯 Выбери тренировку:", reply_markup=workout_menu_keyboard(challenge_done))
 
 
 @router.callback_query(F.data == "workout:test")
@@ -932,6 +938,152 @@ async def cb_weekly_insights(callback: CallbackQuery):
         await callback.message.answer(text)
     else:
         await callback.message.answer("За эту неделю пока нет достаточно данных. Пообщайся больше!")
+
+
+# ─── Daily Challenge ───
+class DailyChallengeStates(StatesGroup):
+    answering = State()
+
+
+@router.callback_query(F.data == "workout:daily_challenge")
+async def cb_daily_challenge(callback: CallbackQuery, state: FSMContext):
+    from datetime import date
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import DAILY_CHALLENGE_SYSTEM
+    from bot.db.models import Error
+    from sqlalchemy import func
+
+    await callback.answer()
+    user_id = callback.from_user.id
+
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+
+    # Check if already done today
+    today = date.today()
+    if user and user.challenge_last_sent and user.challenge_last_sent >= today:
+        await callback.message.answer(
+            "✅ Задание дня уже выполнено!\n\nВозвращайся завтра за новым заданием."
+        )
+        return
+
+    await callback.message.answer("⏳ Генерирую задание дня...")
+
+    # Get user's weak categories to focus on
+    async with async_session() as session:
+        top_cats = (await session.execute(
+            select(Error.category, func.count(Error.id))
+            .where(Error.user_id == user_id)
+            .group_by(Error.category)
+            .order_by(func.count(Error.id).desc())
+            .limit(3)
+        )).all()
+
+    weak_hint = ""
+    if top_cats:
+        cats = ", ".join(c for c, _ in top_cats)
+        weak_hint = f"Focus on the student's weak areas: {cats}"
+
+    result = await ask_groq(DAILY_CHALLENGE_SYSTEM, weak_hint or "General grammar challenge")
+
+    if not result:
+        await callback.message.answer("⚠️ Не удалось создать задание. Попробуй позже.")
+        return
+
+    sentence = result.get("sentence", "")
+    options = result.get("options", [])
+    answer = result.get("answer", "")
+    rule_name = result.get("rule_name", "")
+
+    if not sentence or not options or not answer:
+        await callback.message.answer("⚠️ Не удалось создать задание. Попробуй позже.")
+        return
+
+    await state.set_state(DailyChallengeStates.answering)
+    await state.update_data(
+        challenge_answer=answer,
+        challenge_sentence=sentence,
+        challenge_explanation=result.get("explanation", ""),
+        challenge_rule=rule_name,
+    )
+
+    lines = [
+        "🌅 Задание дня\n",
+        sentence,
+        "",
+    ]
+    for i, opt in enumerate(options, 1):
+        lines.append(f"  {i}. {opt}")
+    lines.append("\n(напиши номер или сам ответ)")
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Показать ответ", callback_data="challenge:skip")],
+    ])
+    await callback.message.answer("\n".join(lines), reply_markup=skip_kb)
+
+
+@router.message(DailyChallengeStates.answering)
+async def cb_challenge_answer(message: Message, state: FSMContext):
+    data = await state.get_data()
+    answer = data.get("challenge_answer", "")
+    sentence = data.get("challenge_sentence", "")
+    explanation = data.get("challenge_explanation", "")
+    rule = data.get("challenge_rule", "")
+
+    user_text = message.text.strip()
+    # Handle numeric answer
+    options_line = sentence
+    user_answer = user_text.lower()
+
+    # Accept numeric or text
+    is_correct = user_answer == answer.lower() or answer.lower() in user_answer
+
+    await state.clear()
+    await _finish_challenge(message, is_correct, answer, explanation, rule, message.from_user.id)
+
+
+@router.callback_query(F.data == "challenge:skip")
+async def cb_challenge_skip(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    answer = data.get("challenge_answer", "")
+    explanation = data.get("challenge_explanation", "")
+    rule = data.get("challenge_rule", "")
+
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await _finish_challenge(callback.message, False, answer, explanation, rule, callback.from_user.id)
+
+
+async def _finish_challenge(target, is_correct: bool, answer: str, explanation: str, rule: str, user_id: int):
+    from datetime import date
+    from sqlalchemy import update as sa_update
+
+    lines = []
+    if is_correct:
+        lines.append(f"✅ Правильно! +30 XP")
+        xp = 30
+    else:
+        lines.append(f"❌ Ответ: {answer}")
+        xp = 5  # small consolation XP
+    lines.append("")
+    if rule:
+        lines.append(f"📌 {rule}")
+    if explanation:
+        lines.append("")
+        lines.append(explanation)
+
+    async with async_session() as session:
+        await add_xp(session, user_id, xp, "daily_challenge")
+        if is_correct:
+            await session.execute(
+                update(User).where(User.id == user_id).values(challenge_last_sent=date.today())
+            )
+            await session.commit()
+
+    await target.answer("\n".join(lines))
 
 
 # ─── Translation Workout ───

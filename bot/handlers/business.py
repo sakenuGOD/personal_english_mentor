@@ -14,7 +14,7 @@ from bot.services.grammar import (
     format_chat_correction, format_detailed_correction,
 )
 from bot.services.local_grammar import has_errors as local_has_errors
-from bot.services.gamification import add_xp, update_streak
+from bot.services.gamification import add_xp, update_streak, check_achievements
 from bot.services.groq_client import ask_groq
 from bot.utils.prompts import MEANING_SYSTEM
 from bot.handlers.commands import get_or_create_user
@@ -172,6 +172,12 @@ async def handle_business_message(message: Message, bot: Bot):
             await save_message(session, user_id, message.chat.id, False, 0)
             await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
             await session.commit()
+            achievements = await check_achievements(session, user_id)
+        for ach in achievements:
+            try:
+                await bot.send_message(chat_id=user_id, text=ach)
+            except Exception as e:
+                logger.warning(f"Failed to send achievement: {e}")
         return
 
     # === LOCAL FOUND ERRORS → send to GPT for detailed explanation ===
@@ -323,6 +329,13 @@ async def _full_check(
             await add_xp(session, user_id, xp, "message_no_error")
 
         await session.commit()
+        achievements = await check_achievements(session, user_id)
+
+    for ach in achievements:
+        try:
+            await bot.send_message(chat_id=user_id, text=ach)
+        except Exception as e:
+            logger.warning(f"Failed to send achievement: {e}")
 
     # Edit the original message with corrected version
     if mode != "silent" and corrections and message:

@@ -22,6 +22,7 @@ async def scheduler_loop(bot):
             tick += 1
             now = datetime.now(timezone.utc)
             await _check_phrase_of_day(bot, now)
+            await _check_daily_challenge(bot, now)
             if now.weekday() == 6:
                 await _check_weekly_insights(bot, now)
             # Vocab reminder — check every 30 minutes
@@ -74,6 +75,71 @@ async def _check_phrase_of_day(bot, now: datetime):
 
         except Exception as e:
             logger.warning(f"Failed to send phrase to user {user.id}: {e}")
+
+
+async def _check_daily_challenge(bot, now: datetime):
+    """Send daily challenge to users at their digest hour (1h after phrase of day)."""
+    today = date.today()
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.notifications == True))
+        users = result.scalars().all()
+
+    for user in users:
+        try:
+            if user.challenge_last_sent and user.challenge_last_sent >= today:
+                continue
+
+            # Send 1 hour after phrase of day
+            digest_hour = user.digest_time.hour if user.digest_time else 9
+            challenge_hour = (digest_hour + 1) % 24
+            if now.hour != challenge_hour:
+                continue
+
+            from bot.services.groq_client import ask_groq
+            from bot.utils.prompts import DAILY_CHALLENGE_SYSTEM
+            from bot.db.models import Error
+            from sqlalchemy import func
+
+            async with async_session() as session:
+                top_cats = (await session.execute(
+                    select(Error.category, func.count(Error.id))
+                    .where(Error.user_id == user.id)
+                    .group_by(Error.category)
+                    .order_by(func.count(Error.id).desc())
+                    .limit(3)
+                )).all()
+
+            weak_hint = ""
+            if top_cats:
+                cats = ", ".join(c for c, _ in top_cats)
+                weak_hint = f"Focus on: {cats}"
+
+            result = await ask_groq(DAILY_CHALLENGE_SYSTEM, weak_hint or "General grammar")
+            if not result:
+                continue
+
+            sentence = result.get("sentence", "")
+            options = result.get("options", [])
+            answer = result.get("answer", "")
+            rule_name = result.get("rule_name", "")
+
+            if not sentence or not options or not answer:
+                continue
+
+            lines = ["🌅 Задание дня\n", sentence, ""]
+            for i, opt in enumerate(options, 1):
+                lines.append(f"  {i}. {opt}")
+            lines.append("\n(напиши номер или ответ)")
+
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📝 Ответить", callback_data="workout:daily_challenge")],
+            ])
+            await bot.send_message(chat_id=user.id, text="\n".join(lines), reply_markup=kb)
+            logger.info(f"Sent daily challenge to user {user.id}")
+
+        except Exception as e:
+            logger.warning(f"Daily challenge failed for user {user.id}: {e}")
 
 
 async def _check_vocab_reminder(bot):

@@ -43,12 +43,15 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         "👋 English Buddy — AI-помощник для английского.\n\n"
         "Что умею:\n"
-        "• Проверять тексты и объяснять ошибки\n"
-        "• Переводить фразы с вариантами\n"
-        "• Объяснять сленг и идиомы\n"
-        "• Тренировки по твоим ошибкам\n"
-        "• Анализировать произношение\n\n"
+        "• Проверять сообщения в чатах и объяснять ошибки\n"
+        "• Переводить фразы с вариантами (casual/formal/slang)\n"
+        "• Объяснять сленг и что имел ввиду собеседник\n"
+        "• Тренировки и словарь с повторением\n"
+        "• Ежедневные задания и фразы дня\n\n"
         "Просто напиши текст — переведу (RU↔EN).\n\n"
+        "📱 Подключи как Telegram Business-бота:\n"
+        "Настройки → Telegram Business → Чат-боты → @этот_бот\n"
+        "Бот будет проверять твои сообщения в чатах. Напиши ? на своё сообщение — проверит его.\n\n"
         "/faq — подробная справка по всем кнопкам",
         reply_markup=main_menu_keyboard(),
     )
@@ -87,6 +90,41 @@ async def cmd_stats(message: Message, state: FSMContext):
 @router.message(Command("mistakes"))
 async def cmd_mistakes(message: Message, state: FSMContext):
     await state.clear()
+    # Support `/mistakes <keyword>` search
+    args = message.text.split(maxsplit=1) if message.text else []
+    if len(args) > 1:
+        keyword = args[1].strip().lower()
+        from bot.db.models import Error
+        from sqlalchemy import or_
+        from bot.services.stats import get_category_name
+        async with async_session() as session:
+            errors = (await session.execute(
+                select(Error)
+                .where(
+                    Error.user_id == message.from_user.id,
+                    or_(
+                        Error.original_text.ilike(f"%{keyword}%"),
+                        Error.corrected_text.ilike(f"%{keyword}%"),
+                        Error.category.ilike(f"%{keyword}%"),
+                        Error.rule_name.ilike(f"%{keyword}%"),
+                    )
+                )
+                .order_by(Error.created_at.desc())
+                .limit(10)
+            )).scalars().all()
+        if not errors:
+            await message.answer(f"🔍 По запросу «{keyword}» ничего не найдено.")
+            return
+        lines = [f"🔍 Поиск «{keyword}» ({len(errors)}):\n"]
+        for e in errors:
+            lines.append(f"❌ {e.original_text} → ✅ {e.corrected_text}")
+            lines.append(f"   {get_category_name(e.category)}")
+            lines.append("")
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "\n..."
+        await message.answer(text, reply_markup=mistakes_keyboard())
+        return
     await message.answer("📓 Журнал ошибок:", reply_markup=mistakes_keyboard())
 
 

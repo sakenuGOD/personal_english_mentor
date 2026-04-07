@@ -766,6 +766,7 @@ def _finish_text(correct: int, total: int) -> str:
         text += "\n👍 Неплохо."
     else:
         text += "\n💪 Нужно подтянуть."
+    return text
 
 
 # ═══════════════════════════════════════════
