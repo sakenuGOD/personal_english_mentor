@@ -593,7 +593,7 @@ async def cb_settings_usage(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    _show_usage(callback.message, user)
+    await _show_usage(callback.message, user)
 
 
 async def _show_usage(target, user):
