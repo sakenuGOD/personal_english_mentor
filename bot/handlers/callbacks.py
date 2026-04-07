@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import random
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, update
 
 from bot.db.database import async_session
@@ -26,6 +28,49 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 ERRORS_PER_PAGE = 5
+
+
+class VocabReviewStates(StatesGroup):
+    answering = State()
+
+
+async def _send_vocab_card(target, state: FSMContext, user_id: int):
+    """Pick next due word, randomly choose direction, ask user to type answer."""
+    async with async_session() as session:
+        words = await get_words_for_review(session, user_id, limit=1)
+
+    if not words:
+        await state.clear()
+        await target.answer("✅ Все слова повторены! Возвращайся позже.")
+        return
+
+    w = words[0]
+    # Random direction: True = show EN ask RU, False = show RU ask EN
+    en_to_ru = random.random() > 0.5
+
+    if en_to_ru:
+        question = f'🔤 Что значит "{w.word}"?\n\nНапиши перевод на русском:'
+        correct = w.translation
+    else:
+        question = f'🇷🇺 Как по-английски:\n\n"{w.translation}"?'
+        correct = w.word
+
+    await state.set_state(VocabReviewStates.answering)
+    await state.update_data(
+        vocab_word_id=w.id,
+        vocab_word=w.word,
+        vocab_translation=w.translation,
+        vocab_correct=correct,
+        vocab_en_to_ru=en_to_ru,
+        vocab_user_id=user_id,
+    )
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Не знаю", callback_data="vocab:skip_answer")],
+        [InlineKeyboardButton(text="🏁 Закончить", callback_data="vocab:finish_review")],
+    ])
+    await target.answer(question, reply_markup=skip_kb)
 
 
 # ─── Menu ───
@@ -93,22 +138,19 @@ async def cb_progress_back(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "progress:vocab")
 async def cb_progress_vocab(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    from bot.services.vocabulary import get_vocab_stats, get_words_for_review
-    from bot.keyboards.inline import vocab_review_keyboard
+    from bot.services.vocabulary import get_vocab_stats
 
     async with async_session() as session:
         stats = await get_vocab_stats(session, callback.from_user.id)
-        words = await get_words_for_review(session, callback.from_user.id, limit=1)
 
     text = (
         f"📚 Словарь:\n\n"
         f"📖 Всего: {stats['total']}  ✅ Выучено: {stats['mastered']}  🔄 На повторение: {stats['due_today']}\n"
     )
 
-    if words:
-        w = words[0]
-        text += f"\n🔄 Что значит \"{w.word}\"?"
-        await callback.message.answer(text, reply_markup=vocab_review_keyboard(w.id))
+    if stats['due_today'] > 0:
+        await callback.message.answer(text)
+        await _send_vocab_card(callback.message, state, callback.from_user.id)
     else:
         if stats['total'] == 0:
             text += "\nСловарь пуст. Добавляй через 💡 Слово → ➕ В словарь"
@@ -538,56 +580,66 @@ async def cb_settings_back(callback: CallbackQuery):
 
 
 # ─── Vocabulary review ───
-@router.callback_query(F.data.startswith("vocab:show:"))
-async def cb_vocab_show(callback: CallbackQuery):
-    word_id = int(callback.data.split(":")[-1])
+@router.message(VocabReviewStates.answering)
+async def cb_vocab_typed_answer(message: Message, state: FSMContext):
+    """User typed their answer — check it."""
+    data = await state.get_data()
+    correct = data.get("vocab_correct", "")
+    word_id = data.get("vocab_word_id")
+    word = data.get("vocab_word", "")
+    translation = data.get("vocab_translation", "")
+    en_to_ru = data.get("vocab_en_to_ru", True)
+    user_id = data.get("vocab_user_id", message.from_user.id)
+
+    user_answer = message.text.strip().lower()
+    correct_clean = correct.strip().lower()
+
+    # Simple match: exact or contained (handles "I'm happy" ≈ "happy")
+    is_correct = user_answer == correct_clean or correct_clean in user_answer or user_answer in correct_clean
+
     async with async_session() as session:
-        result = await session.execute(select(Vocabulary).where(Vocabulary.id == word_id))
-        vocab = result.scalar_one_or_none()
-    if not vocab:
-        await callback.answer("Слово не найдено")
-        return
-    text = (
-        f"📖 {vocab.word} — {vocab.translation}\n"
-        f"📝 {vocab.example}" if vocab.example else f"📖 {vocab.word} — {vocab.translation}"
-    )
-    await callback.message.edit_text(text, reply_markup=vocab_answer_keyboard(word_id))
+        await review_word(session, word_id, is_correct)
+        if is_correct:
+            await add_xp(session, user_id, XP_WORD_REMEMBERED, "word_remembered")
+
+    if is_correct:
+        feedback = f"✅ Правильно! +{XP_WORD_REMEMBERED} XP\n\n{word} — {translation}"
+    else:
+        feedback = f"❌ Не угадал.\n\n{word} — {translation}"
+        if en_to_ru:
+            feedback += f"\n\nПравильный перевод: {correct}"
+        else:
+            feedback += f"\n\nПо-английски: {correct}"
+
+    await message.answer(feedback)
+    await _send_vocab_card(message, state, user_id)
+
+
+@router.callback_query(F.data == "vocab:skip_answer")
+async def cb_vocab_skip(callback: CallbackQuery, state: FSMContext):
+    """User doesn't know — show answer, count as wrong."""
+    data = await state.get_data()
+    word_id = data.get("vocab_word_id")
+    word = data.get("vocab_word", "")
+    translation = data.get("vocab_translation", "")
+    user_id = data.get("vocab_user_id", callback.from_user.id)
+
+    if word_id:
+        async with async_session() as session:
+            await review_word(session, word_id, False)
+
     await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(f"📖 {word} — {translation}\n\nВернулось на 1-й уровень.")
+    await _send_vocab_card(callback.message, state, user_id)
 
 
-@router.callback_query(F.data.startswith("vocab:yes:"))
-async def cb_vocab_yes(callback: CallbackQuery):
-    word_id = int(callback.data.split(":")[-1])
-    async with async_session() as session:
-        await review_word(session, word_id, True)
-        await add_xp(session, callback.from_user.id, XP_WORD_REMEMBERED, "word_remembered")
-    await callback.message.edit_text(f"✅ +{XP_WORD_REMEMBERED} XP")
+@router.callback_query(F.data == "vocab:finish_review")
+async def cb_vocab_finish(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await callback.answer()
-
-    async with async_session() as session:
-        words = await get_words_for_review(session, callback.from_user.id, limit=1)
-    if words:
-        from bot.keyboards.inline import vocab_review_keyboard
-        w = words[0]
-        await callback.message.answer(
-            f"🔄 Что значит \"{w.word}\"?",
-            reply_markup=vocab_review_keyboard(w.id),
-        )
-
-
-@router.callback_query(F.data.startswith("vocab:no:"))
-async def cb_vocab_no(callback: CallbackQuery):
-    word_id = int(callback.data.split(":")[-1])
-    async with async_session() as session:
-        await review_word(session, word_id, False)
-        result = await session.execute(select(Vocabulary).where(Vocabulary.id == word_id))
-        vocab = result.scalar_one_or_none()
-    if vocab:
-        await callback.message.edit_text(
-            f"📖 {vocab.word} — {vocab.translation}\n"
-            f"Вернулось на 1-й уровень."
-        )
-    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("🏁 Повторение закончено. Возвращайся позже!")
 
 
 # ─── Mistakes Journal with Pagination ───
@@ -737,21 +789,10 @@ async def cb_workout_translation(callback: CallbackQuery, state: FSMContext):
 
 # ─── Vocab reminder buttons ───
 @router.callback_query(F.data == "vocab:start_review")
-async def cb_vocab_start_review(callback: CallbackQuery):
+async def cb_vocab_start_review(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_reply_markup(reply_markup=None)
-    from bot.services.vocabulary import get_words_for_review
-    from bot.keyboards.inline import vocab_review_keyboard
-    async with async_session() as session:
-        words = await get_words_for_review(session, callback.from_user.id, limit=1)
-    if not words:
-        await callback.message.answer("✅ Все слова уже повторены!")
-        return
-    w = words[0]
-    await callback.message.answer(
-        f"📚 Словарь\n\n🔄 Что значит \"{w.word}\"?",
-        reply_markup=vocab_review_keyboard(w.id),
-    )
+    await _send_vocab_card(callback.message, state, callback.from_user.id)
 
 
 @router.callback_query(F.data == "vocab:remind_later")
