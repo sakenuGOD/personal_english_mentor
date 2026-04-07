@@ -145,10 +145,8 @@ async def handle_business_message(message: Message, bot: Bot):
     if text.lower().strip("!?.,") in SKIP_PHRASES:
         return
 
-    # Skip non-latin messages
-    latin_chars = sum(1 for c in text if c.isalpha() and ord(c) < 128)
-    alpha_chars = sum(1 for c in text if c.isalpha())
-    if alpha_chars > 0 and latin_chars / alpha_chars < 0.5:
+    # Skip if any Cyrillic character present — not English, don't check
+    if any('\u0400' <= c <= '\u04FF' for c in text):
         return
 
     # Get user settings

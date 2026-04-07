@@ -1054,6 +1054,10 @@ async def has_errors(text: str) -> bool:
 
     Returns True if errors found, False if clean, True if API failed (safe fallback).
     """
+    # Any Cyrillic → not English, skip entirely
+    if any('\u0400' <= c <= '\u04FF' for c in text):
+        return False
+
     # ── Layer 1: Pattern checker (instant, free) ──
     pattern_errors = _check_patterns(text)
     if pattern_errors:
