@@ -224,7 +224,7 @@ async def _check_daily_checkup(bot, now: datetime):
             if now.hour != checkup_hour or now.minute < 58:
                 continue
 
-            # Get today's buffered messages
+            # Get today's buffered messages + errors from DB
             async with async_session() as session:
                 buf_result = await session.execute(
                     select(DailyMessageBuffer)
@@ -241,10 +241,60 @@ async def _check_daily_checkup(bot, now: datetime):
                     await session.commit()
                 continue
 
-            texts = [m.text for m in messages]
-            combined = "\n".join(f"- {t}" for t in texts[:50])
+            # ── Smart sampling: 15 msgs from each of 4 time windows ──
+            from bot.db.models import Error as ErrorModel
+            from datetime import timedelta
+            import random
 
-            gpt = await ask_groq(DAILY_CHECKUP_SYSTEM, combined)
+            all_msgs = messages
+            total = len(all_msgs)
+
+            # Filter out very short messages (<5 words) — useless for naturalness
+            meaningful = [m for m in all_msgs if len(m.text.split()) >= 5]
+            if len(meaningful) < len(all_msgs) * 0.3:
+                meaningful = all_msgs  # fallback if most are short
+
+            # Split day into 4 quarters, sample 15 from each
+            sample = []
+            if total <= 60:
+                sample = meaningful
+            else:
+                quarter = len(meaningful) // 4
+                for i in range(4):
+                    chunk = meaningful[i * quarter: (i + 1) * quarter]
+                    picked = random.sample(chunk, min(15, len(chunk))) if len(chunk) > 15 else chunk
+                    sample.extend(picked)
+                # Sort back by time
+                sample.sort(key=lambda m: m.created_at)
+
+            # ── All today's errors from DB (compact, covers everything LT caught) ──
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            async with async_session() as session:
+                db_errors = (await session.execute(
+                    select(ErrorModel)
+                    .where(ErrorModel.user_id == user.id, ErrorModel.created_at >= today_start)
+                    .order_by(ErrorModel.created_at)
+                )).scalars().all()
+
+            # Build GPT input
+            import json as _json
+            sample_texts = "\n".join(f"- {m.text}" for m in sample)
+            errors_data = [
+                {
+                    "original": e.original_text,
+                    "corrected": e.corrected_text,
+                    "category": e.category,
+                    "explanation": e.short_explanation or "",
+                }
+                for e in db_errors
+            ]
+            gpt_input = _json.dumps({
+                "message_sample": sample_texts,
+                "total_messages_today": total,
+                "detected_errors": errors_data,
+            }, ensure_ascii=False)
+
+            gpt = await ask_groq(DAILY_CHECKUP_SYSTEM, gpt_input)
             if not gpt:
                 continue
 
