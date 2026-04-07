@@ -320,6 +320,7 @@ def grammar_map_keyboard(page: int = 0, total_pages: int = 1) -> InlineKeyboardM
     rows = []
     if nav:
         rows.append(nav)
+    rows.append([InlineKeyboardButton(text="🎯 Потренировать пробелы", callback_data="grammar:train_gaps")])
     rows.append([
         InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:grammar_map"),
         InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back"),

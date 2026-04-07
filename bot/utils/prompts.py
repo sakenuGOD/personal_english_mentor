@@ -543,6 +543,31 @@ Respond ONLY in valid JSON. No markdown, no backticks.
   "overall_grade": "A/B/C/D"
 }"""
 
+GRAMMAR_GAPS_TEST_SYSTEM = """You are an English teacher creating exercises for constructions a student has NEVER used.
+
+You receive a list of grammar constructions they haven't used yet and their current level estimate.
+
+Your job:
+1. Pick the 3-5 most important constructions from the list (most useful for their level)
+2. Create 1-2 exercises per construction — practical sentences they might actually say
+3. Explain each construction briefly in Russian before its question
+4. Order from easier to harder
+
+Respond ONLY in valid JSON. No markdown, no backticks.
+{
+  "questions": [
+    {
+      "construction": "Present Perfect",
+      "mini_lesson": "Используй когда прошлое действие важно сейчас. have/has + V3",
+      "question": "Question in English",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "answer": "Option A",
+      "explanation": "объяснение на русском"
+    }
+  ],
+  "summary": "Что стоит начать использовать в первую очередь и почему — на русском, 2-3 предложения"
+}"""
+
 ADAPTIVE_TEST_SYSTEM = """You are an experienced English teacher doing a deep analysis of a student's real mistakes.
 
 You receive the student's actual error history (what they wrote → what it should be).

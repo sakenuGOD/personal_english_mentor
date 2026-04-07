@@ -138,6 +138,31 @@ CONSTRUCTION_LABELS = {
     "relative_clauses": "Relative Clauses",
 }
 
+CONSTRUCTION_HINTS = {
+    "present_simple": "факты и привычки — «I work», «she likes»",
+    "present_continuous": "прямо сейчас или временно — «I am working»",
+    "present_perfect": "прошлое важно сейчас — «I have seen it»",
+    "present_perfect_continuous": "процесс от прошлого до сейчас — «I have been waiting»",
+    "past_simple": "конкретный момент в прошлом — «I went yesterday»",
+    "past_continuous": "процесс в прошлом — «I was sleeping when...»",
+    "past_perfect": "до другого события в прошлом — «I had left before she came»",
+    "past_perfect_continuous": "процесс до события в прошлом — «I had been waiting for hours»",
+    "future_simple": "решение на месте, предсказание — «I will call you»",
+    "future_continuous": "процесс в будущем — «I will be working tomorrow»",
+    "future_perfect": "завершится до момента в будущем — «I will have finished by 5»",
+    "future_perfect_continuous": "длительность до момента в будущем",
+    "conditional_0": "всегда верный факт — «If you heat water, it boils»",
+    "conditional_1": "реальная ситуация в будущем — «If I study, I will pass»",
+    "conditional_2": "нереальное сейчас — «If I were rich, I would travel»",
+    "conditional_3": "нереальное в прошлом — «If I had known, I would have called»",
+    "passive_voice": "важно что, а не кто — «It was built in 1990»",
+    "reported_speech": "пересказ чужих слов — «He said he was tired»",
+    "gerund": "глагол как существительное — «I enjoy swimming»",
+    "infinitive": "цель или намерение — «I want to learn»",
+    "modal_verbs": "can/should/must/might — степень обязанности/возможности",
+    "relative_clauses": "уточнение через which/who/that — «the man who called»",
+}
+
 
 async def get_grammar_map(session: AsyncSession, user_id: int) -> dict:
     """Build grammar usage map data with AI analysis. Returns structured dict."""
@@ -223,13 +248,17 @@ def format_grammar_page(data: dict, page: int) -> tuple[str, int]:
                 p1_lines.append(f"  • {label} ({u['days_since_last_use']} дн. назад)")
         pages.append("\n".join(p1_lines))
 
-    # Pages 2+: Never used (paginated)
+    # Pages 2+: Never used with hints (paginated)
     if never_used:
         chunks = [never_used[i:i+PER_PAGE] for i in range(0, len(never_used), PER_PAGE)]
         for chunk in chunks:
-            lines = ["❌ Не использовал:\n"]
+            lines = ["❌ Ни разу не использовал:\n"]
             for c in chunk:
-                lines.append(f"  • {CONSTRUCTION_LABELS.get(c, c)}")
+                name = CONSTRUCTION_LABELS.get(c, c)
+                hint = CONSTRUCTION_HINTS.get(c, "")
+                lines.append(f"  • {name}")
+                if hint:
+                    lines.append(f"    ↳ {hint}")
             pages.append("\n".join(lines))
 
     total = len(pages)

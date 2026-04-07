@@ -313,6 +313,7 @@ async def _send_topic_question(target, state: FSMContext):
     data = await state.get_data()
     questions = data.get("questions", [])
     idx = data.get("current_q", 0)
+    show_mini_lesson = data.get("show_mini_lesson", False)
 
     if idx >= len(questions):
         return
@@ -320,15 +321,23 @@ async def _send_topic_question(target, state: FSMContext):
     q = questions[idx]
     question_text = q.get("question", "")
     options = q.get("options", [])
+    mini_lesson = q.get("mini_lesson", "")
+    construction = q.get("construction", "")
 
-    lines = [f"❓ Вопрос {idx + 1}/{len(questions)}\n", question_text, ""]
+    lines = []
+    if show_mini_lesson and mini_lesson:
+        if construction:
+            lines.append(f"📖 {construction}")
+        lines.append(f"{mini_lesson}\n")
+
+    lines += [f"❓ {idx + 1}/{len(questions)}\n", question_text, ""]
     for i, opt in enumerate(options):
         lines.append(f"  {i + 1}. {opt}")
     lines.append("\nНапиши номер ответа:")
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏹ Завершить тест", callback_data="topictest:stop")],
+        [InlineKeyboardButton(text="⏹ Завершить", callback_data="topictest:stop")],
     ])
     await target.answer("\n".join(lines), reply_markup=kb)
 
@@ -1347,6 +1356,60 @@ async def cb_grammar_map(callback: CallbackQuery, state: FSMContext):
     await state.update_data(grammar_map_data=data)
     text, total = format_grammar_page(data, 0)
     await callback.message.answer(text, reply_markup=grammar_map_keyboard(0, total))
+
+
+@router.callback_query(F.data == "grammar:train_gaps")
+async def cb_grammar_train_gaps(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer("🎯 Генерирую упражнения на твои пробелы...")
+
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import GRAMMAR_GAPS_TEST_SYSTEM
+    from bot.services.stats import get_grammar_map
+
+    fsm_data = await state.get_data()
+    data = fsm_data.get("grammar_map_data")
+    if not data:
+        async with async_session() as session:
+            data = await get_grammar_map(session, callback.from_user.id)
+
+    never_used = data.get("never_used", [])
+    gpt_data = data.get("gpt", {})
+    level = gpt_data.get("level_estimate", "B1")
+
+    if not never_used:
+        await callback.message.answer("🎉 Нет пробелов — ты использовал все конструкции!")
+        return
+
+    from bot.services.stats import CONSTRUCTION_LABELS, CONSTRUCTION_HINTS
+    gaps_text = "\n".join(
+        f"- {CONSTRUCTION_LABELS.get(c, c)}: {CONSTRUCTION_HINTS.get(c, '')}"
+        for c in never_used
+    )
+
+    result = await ask_groq(
+        GRAMMAR_GAPS_TEST_SYSTEM,
+        f"Student level: {level}\n\nNever used constructions:\n{gaps_text}"
+    )
+    if not result or not result.get("questions"):
+        await callback.message.answer("⚠️ Не удалось создать упражнения.")
+        return
+
+    questions = result.get("questions", [])
+    summary = result.get("final_summary") or result.get("summary", "")
+
+    # Add mini_lesson to each question display — store in questions for rendering
+    await state.set_state(TopicTestStates.in_test)
+    await state.update_data(
+        questions=questions,
+        current_q=0,
+        correct=0,
+        topic_title="Тренировка пробелов",
+        final_summary=summary,
+        show_mini_lesson=True,
+    )
+    await callback.message.answer(f"📚 {len(questions)} упражнений — по самым важным пробелам")
+    await _send_topic_question(callback.message, state)
 
 
 @router.callback_query(F.data.startswith("grammar:page:"))
