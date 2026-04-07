@@ -651,7 +651,6 @@ async def cb_curriculum_practice(callback: CallbackQuery, state: FSMContext):
 async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     """Combined paginated stats: overview → weekly → analysis."""
     await callback.answer()
-    await callback.message.answer("📊 Собираю статистику...")
 
     from sqlalchemy import func
     from datetime import datetime, timedelta
@@ -814,7 +813,26 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     else:
         pages.append("⚠️ Не удалось выполнить анализ.")
 
-    await state.update_data(stats_pages=pages)
+    # Auto-split pages that are too long (>3500 chars)
+    final_pages = []
+    for p in pages:
+        if len(p) <= 3500:
+            final_pages.append(p)
+        else:
+            # Split by lines into chunks
+            lines = p.split("\n")
+            chunk, chunks = [], []
+            for line in lines:
+                if len("\n".join(chunk)) + len(line) > 3400:
+                    chunks.append("\n".join(chunk))
+                    chunk = [line]
+                else:
+                    chunk.append(line)
+            if chunk:
+                chunks.append("\n".join(chunk))
+            final_pages.extend(chunks)
+
+    await state.update_data(stats_pages=final_pages)
 
     def stats_kb(page, total):
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -824,9 +842,11 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
         nav.append(InlineKeyboardButton(text=f"{page+1}/{total}", callback_data="noop"))
         if page < total - 1:
             nav.append(InlineKeyboardButton(text="▶️", callback_data=f"stats:page:{page+1}"))
-        return InlineKeyboardMarkup(inline_keyboard=[nav, [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")]])
+        rows = [nav] if nav else []
+        rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
 
-    await callback.message.answer(pages[0], reply_markup=stats_kb(0, len(pages)))
+    await callback.message.answer(final_pages[0], reply_markup=stats_kb(0, len(final_pages)))
 
 
 @router.callback_query(F.data.startswith("stats:page:"))
@@ -836,11 +856,10 @@ async def cb_stats_page(callback: CallbackQuery, state: FSMContext):
     fsm = await state.get_data()
     pages = fsm.get("stats_pages", [])
     if not pages:
-        await callback.message.answer("Данные устарели, открой статистику заново.")
+        await callback.message.answer("Открой статистику заново.")
         return
     total = len(pages)
     page = max(0, min(page, total - 1))
-
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     nav = []
     if page > 0:

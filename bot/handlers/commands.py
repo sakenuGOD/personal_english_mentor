@@ -82,9 +82,7 @@ async def cmd_settings(message: Message, state: FSMContext):
 @router.message(F.text == "📊 Прогресс")
 async def cmd_stats(message: Message, state: FSMContext):
     await state.clear()
-    async with async_session() as session:
-        stats = await get_user_stats(session, message.from_user.id)
-    await message.answer(format_stats(stats), reply_markup=progress_keyboard())
+    await message.answer("📊 Прогресс:", reply_markup=progress_keyboard())
 
 
 @router.message(Command("mistakes"))
