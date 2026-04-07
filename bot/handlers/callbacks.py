@@ -734,8 +734,12 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     # trend arrow
     if prev_rate is not None:
         delta = this_rate - prev_rate
-        arr = "↓" if delta < -1 else ("↑" if delta > 1 else "→")
-        trend_str = f"{arr} {'+' if delta > 0 else ''}{round(delta,1)}% к прошлой неделе"
+        if delta < -1:
+            trend_str = f"✅ лучше на {round(abs(delta), 1)}% чем неделю назад"
+        elif delta > 1:
+            trend_str = f"⚠️ хуже на {round(delta, 1)}% чем неделю назад"
+        else:
+            trend_str = "без изменений"
     else:
         trend_str = ""
 
