@@ -651,6 +651,7 @@ async def cb_curriculum_practice(callback: CallbackQuery, state: FSMContext):
 async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     """Combined paginated stats: overview → weekly → analysis."""
     await callback.answer()
+    loading_msg = await callback.message.answer("⏳ Собираю данные и анализирую...")
 
     from sqlalchemy import func
     from datetime import datetime, timedelta
@@ -713,6 +714,7 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
         )).all()
 
     if total_msgs < 3:
+        await loading_msg.delete()
         await callback.message.answer(
             "Пока мало данных.\nПообщайся в бизнес-чатах — соберём статистику.",
             reply_markup=progress_keyboard()
@@ -770,54 +772,39 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     weekly_payload = {
         "this_week": {"messages": this_msgs, "errors": this_errs, "error_rate": this_rate},
         "prev_week": {"messages": prev_msgs, "errors": prev_errs, "error_rate": prev_rate},
-        "top_categories": [{"category": c, "count": n} for c, n in error_cats[:3]],
+        "top_categories": [{"category": c, "count": n} for c, n in error_cats[:5]],
         "xp_earned": xp_week,
-        "vocab_added": vocab_count,
     }
     weekly_gpt = await ask_groq(WEEKLY_INSIGHTS_SYSTEM, json.dumps(weekly_payload))
 
-    p2_header = ["📅 Эта неделя\n"]
+    p2 = ["📅 Неделя — разбор\n"]
     if this_msgs == 0:
-        p2_header.append("Нет данных за эту неделю.")
+        p2.append("Нет данных за эту неделю.")
     else:
-        p2_header.append(f"Сообщений: {this_msgs}  |  Ошибок: {this_errs} ({this_rate}%)")
+        p2.append(f"Сообщений: {this_msgs}  |  Ошибок: {this_errs} ({this_rate}%)")
         if trend_str:
-            p2_header.append(trend_str)
-        p2_header.append(f"XP заработано: +{xp_week}")
+            p2.append(trend_str)
+        p2.append(f"XP: +{xp_week}")
+        p2.append("")
 
-    pages.append("\n".join(p2_header))
+        if weekly_gpt:
+            summary = weekly_gpt.get("summary")
+            main_problem = weekly_gpt.get("main_problem")
+            trend_text = weekly_gpt.get("trend")
+            next_focus = weekly_gpt.get("next_focus")
+            if summary:
+                p2.append(summary)
+                p2.append("")
+            if main_problem:
+                p2.append(f"🔴 Главная проблема:\n{main_problem}")
+                p2.append("")
+            if trend_text:
+                p2.append(f"📈 Динамика: {trend_text}")
+                p2.append("")
+            if next_focus:
+                p2.append(f"🎯 Фокус на следующей неделе:\n{next_focus}")
 
-    # ── Error pages (8 per page) ──
-    ERRORS_PER_PAGE = 8
-    if top_errors_week:
-        error_chunks = [top_errors_week[i:i+ERRORS_PER_PAGE] for i in range(0, len(top_errors_week), ERRORS_PER_PAGE)]
-        total_err_pages = len(error_chunks)
-        for ci, chunk in enumerate(error_chunks):
-            ep = []
-            if total_err_pages > 1:
-                ep.append(f"Ошибки недели ({ci*ERRORS_PER_PAGE+1}–{ci*ERRORS_PER_PAGE+len(chunk)} из {len(top_errors_week)}):\n")
-            else:
-                ep.append("Ошибки недели:\n")
-            for orig, corr, expl, cnt in chunk:
-                times = f" (×{cnt})" if cnt > 1 else ""
-                ep.append(f"❌ {orig}{times}")
-                ep.append(f"✅ {corr}")
-                if expl:
-                    ep.append(f"💡 {expl}")
-                ep.append("")
-            pages.append("\n".join(ep))
-
-    # ── GPT rule page ──
-    if weekly_gpt:
-        focus = weekly_gpt.get("focus_rule")
-        motivation = weekly_gpt.get("motivation")
-        if focus or motivation:
-            gpt_p = []
-            if focus:
-                gpt_p.append(f"🎯 Правило недели:\n{focus}")
-            if motivation:
-                gpt_p.append(f"\n{motivation}")
-            pages.append("\n".join(gpt_p))
+    pages.append("\n".join(p2))
 
     # ── Page 3: GPT Analysis ──
     analysis_input = (
@@ -897,6 +884,7 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
         rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
+    await loading_msg.delete()
     await callback.message.answer(final_pages[0], reply_markup=stats_kb(0, len(final_pages)))
 
 
