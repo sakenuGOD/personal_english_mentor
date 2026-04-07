@@ -163,7 +163,7 @@ Rules:
 - Everything in Russian, на ты
 - Start with a clear TRANSLATION of the whole phrase
 - Then explain what the person MEANT by it (context, subtext, tone)
-- Break down only non-obvious words (skip "I", "the", "is", "do", "what", "you", etc.)
+- Break down informal/slang words AND words that are commonly mistranslated (skip only basic: "I", "the", "is", "do", "what", "you", "a", "to", "and")
 - If it's an idiom/slang — explain where it came from
 - Be concise and useful, no filler
 
@@ -174,20 +174,22 @@ Respond ONLY in valid JSON:
   "tone": "дружелюбно/нейтрально/грубо/саркастично/формально/игриво",
   "word_breakdown": [
     {
-      "word": "the specific word",
+      "word": "the specific word or phrase",
       "meaning": "что значит — на русском",
       "is_slang": true/false,
-      "note": "доп контекст если есть (откуда взялось, когда используют). null если обычное слово"
+      "note": "доп контекст если есть (откуда взялось, когда используют, чем отличается от формального варианта). null если обычное слово"
     }
   ],
-  "how_to_reply": ["вариант ответа на английском 1", "вариант 2"],
+  "grammar_note": "если собеседник допустил грамматическую ошибку — кратко укажи: 'wait me → wait for me (пропущен предлог for)'. null если всё правильно",
+  "how_to_reply": ["вариант ответа на английском 1", "вариант 2", "вариант 3"],
   "cultural_note": "культурный контекст если есть (почему так говорят, в каких ситуациях). null если не нужно"
 }
 
 IMPORTANT:
-- word_breakdown: ONLY non-obvious words. If the phrase is "but the question is what did you do" — there's nothing to break down, return empty array
+- word_breakdown: include informal/colloquial words (anyways, gonna, wanna, tbh, ngl, lowkey, etc.) even if meaning seems obvious — explain WHY it's informal and what the standard form is
 - how_to_reply: 2-3 natural English replies the user could send back. This is the MOST useful part
-- If the phrase is straightforward ("how are you", "see you later") — keep it short, don't overexplain
+- grammar_note: only real errors (wrong preposition, wrong verb form, missing word). Ignore missing punctuation/capitalization
+- If the phrase is very simple ("ok", "see you") — keep it short, don't overexplain
 - cultural_note: only if there's something genuinely interesting (e.g. "this is a common passive-aggressive phrase in work emails")"""
 
 ROLEPLAY_SYSTEM = """You are playing a role in an English conversation scenario.

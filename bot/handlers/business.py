@@ -221,6 +221,12 @@ async def _explain_message(text: str, user_id: int, chat, bot: Bot):
             lines.append(line)
         lines.append("")
 
+    # Grammar note (partner's error)
+    grammar_note = result.get("grammar_note")
+    if grammar_note:
+        lines.append(f"⚠️ Ошибка собеседника: {grammar_note}")
+        lines.append("")
+
     # How to reply
     replies = result.get("how_to_reply", [])
     if replies:
