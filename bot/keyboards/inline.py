@@ -180,6 +180,7 @@ def settings_keyboard(user) -> InlineKeyboardMarkup:
             text=f"🔔 Уведомления: {'ВКЛ' if user.notifications else 'ВЫКЛ'}",
             callback_data="settings:notifications",
         )],
+        [InlineKeyboardButton(text="💰 Расходы и баланс", callback_data="settings:usage")],
         [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
     ])
 

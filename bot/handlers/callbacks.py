@@ -570,6 +570,47 @@ async def cb_toggle_notifications(callback: CallbackQuery):
     await callback.answer(f"🔔 Уведомления: {'ВКЛ' if user.notifications else 'ВЫКЛ'}")
 
 
+@router.callback_query(F.data == "settings:usage")
+async def cb_settings_usage(callback: CallbackQuery):
+    await callback.answer()
+    from bot.services.groq_client import get_usage_stats, get_api_balance
+
+    await callback.message.answer("⏳ Проверяю баланс...")
+
+    stats = get_usage_stats()
+    balance = await get_api_balance()
+
+    # gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output
+    def calc_cost(s: dict) -> float:
+        return s["in"] * 0.00000015 + s["out"] * 0.00000060
+
+    t = stats["today"]
+    y = stats["yesterday"]
+
+    lines = [
+        "💰 Расходы и баланс",
+        "",
+        "Сегодня:",
+        f"  📥 Входящих токенов: {t['in']:,}",
+        f"  📤 Исходящих токенов: {t['out']:,}",
+        f"  🔢 Запросов: {t['calls']}",
+        f"  💵 ~${calc_cost(t):.5f}",
+        "",
+        "Вчера:",
+        f"  📥 {y['in']:,} in / 📤 {y['out']:,} out",
+        f"  🔢 {y['calls']} запросов  💵 ~${calc_cost(y):.5f}",
+    ]
+
+    if balance is not None:
+        lines += ["", f"🏦 Баланс API: {balance}"]
+    else:
+        lines += ["", "🏦 Баланс: не удалось получить"]
+
+    lines += ["", "⚠️ Токены считаются с момента запуска бота (in-memory)"]
+
+    await callback.message.answer("\n".join(lines))
+
+
 @router.callback_query(F.data == "settings:back")
 async def cb_settings_back(callback: CallbackQuery):
     async with async_session() as session:
