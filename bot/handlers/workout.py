@@ -264,27 +264,50 @@ async def process_workout_answer(message: Message, state: FSMContext):
         return
 
     task = tasks[current]
-    is_correct = message.text.strip().lower() == task.get("answer", "").strip().lower()
+    task_type = task.get("type", "fill_blank")
+    user_input = message.text.strip()
+    correct_answer = task.get("answer", "").strip()
+    explanation = task.get("explanation", "") or task.get("rule", "")
+
+    # Flexible matching: fill_blank = exact word; correct_sentence = check if key fix is present
+    if task_type == "correct_sentence":
+        # Accept if user wrote the full corrected sentence OR if their answer contains the correction
+        user_norm = user_input.lower().strip(".,!?")
+        correct_norm = correct_answer.lower().strip(".,!?")
+        is_correct = user_norm == correct_norm or user_norm in correct_norm or correct_norm in user_norm
+    else:
+        # fill_blank / choose_right: match against word
+        options = task.get("options", [])
+        user_answer = user_input.lower()
+        if user_input.isdigit():
+            n = int(user_input) - 1
+            user_answer = options[n].lower() if 0 <= n < len(options) else user_answer
+        is_correct = user_answer == correct_answer.lower()
+
     if is_correct:
         correct += 1
         text = "✅ Правильно!"
     else:
-        text = f"❌ Ответ: {task.get('answer', '')}"
+        text = f"❌ Правильно: {correct_answer}"
         if task.get("related_error"):
-            text += f"\n   📎 {task['related_error']}"
+            text += f"\n📎 {task['related_error']}"
+
+    if explanation:
+        text += f"\n💡 {explanation}"
 
     next_idx = current + 1
     await state.update_data(current=next_idx, correct=correct)
 
     if next_idx >= total:
-        text += _finish_text(correct, total)
+        await message.answer(text)
+        finish = _finish_text(correct, total)
         from bot.keyboards.inline import workout_done_keyboard
-        await message.answer(text, reply_markup=workout_done_keyboard())
+        await message.answer(finish, reply_markup=workout_done_keyboard())
         await state.clear()
     else:
-        text += "\n\n" + _format_task(tasks[next_idx], next_idx + 1, total)
         from bot.keyboards.inline import workout_skip_keyboard
-        await message.answer(text, reply_markup=workout_skip_keyboard())
+        await message.answer(text)
+        await message.answer(_format_task(tasks[next_idx], next_idx + 1, total), reply_markup=workout_skip_keyboard())
 
 
 # ═══════════════════════════════════════════
@@ -436,17 +459,25 @@ async def _process_level_answer(message: Message, state: FSMContext, tasks_key: 
         if 0 <= idx < len(options):
             user_answer = options[idx].lower()
 
-    expected = task.get("answer", "").strip().lower()
-    is_correct = user_answer == expected
+    correct_answer = task.get("answer", "").strip()
+    expected = correct_answer.lower()
+    task_type = task.get("type", "fill_blank")
+    expl = task.get("explanation", "")
+
+    if task_type == "correct_sentence":
+        user_norm = user_answer.strip(".,!?")
+        correct_norm = expected.strip(".,!?")
+        is_correct = user_norm == correct_norm or user_norm in correct_norm or correct_norm in user_norm
+    else:
+        is_correct = user_answer == expected
 
     if is_correct:
         correct += 1
-        text = "✅"
+        text = "✅ Правильно!"
     else:
-        text = f"❌ {task.get('answer', '')}"
-        expl = task.get("explanation", "")
-        if expl:
-            text += f" — {expl}"
+        text = f"❌ Правильно: {correct_answer}"
+    if expl:
+        text += f"\n💡 {expl}"
 
     answers.append({"level": task.get("level", ""), "correct": is_correct, "topic": task.get("topic", "")})
     next_idx = current + 1
@@ -456,9 +487,9 @@ async def _process_level_answer(message: Message, state: FSMContext, tasks_key: 
         await message.answer(f"{text}\n\n✅ Этап завершён: {correct}/{len(tasks)}")
         return True, await state.get_data()
     else:
-        reply = f"{text}\n\n{_format_level_q(tasks[next_idx], next_idx + 1, len(tasks))}"
+        await message.answer(text)
         from bot.keyboards.inline import workout_skip_keyboard
-        await message.answer(reply, reply_markup=workout_skip_keyboard())
+        await message.answer(_format_level_q(tasks[next_idx], next_idx + 1, len(tasks)), reply_markup=workout_skip_keyboard())
         return False, None
 
 
