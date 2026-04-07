@@ -721,51 +721,90 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
 
     pages = []
 
-    # ── Page 1: Overview ──
     this_rate = round(this_errs / this_msgs * 100, 1) if this_msgs else 0
     prev_rate = round(prev_errs / prev_msgs * 100, 1) if prev_msgs else None
     all_rate = round(total_err / total_msgs * 100, 1) if total_msgs else 0
-
-    trend = ""
-    if prev_rate is not None:
-        delta = this_rate - prev_rate
-        trend = f"  {'↓' if delta < -1 else '↑' if delta > 1 else '→'} {'+' if delta > 0 else ''}{round(delta, 1)}% vs прошлая неделя"
-
     lvl = user.level if user else "newbie"
     xp = user.xp if user else 0
     streak = user.streak if user else 0
     eng_level = user.english_level if user else None
 
-    p1 = ["📊 Статистика\n"]
-    p1.append(f"{'🎓 ' + eng_level if eng_level else ''}")
-    p1.append(f"⚡ {xp} XP   🔥 {streak} дн.   📈 {lvl.title()}\n")
-    p1.append(f"💬 Сообщений всего: {total_msgs}  (неделя: {this_msgs})")
-    p1.append(f"❌ Ошибок за всё время: {total_err} ({all_rate}%)")
-    p1.append(f"   За неделю: {this_errs}/{this_msgs} ({this_rate}%){trend}")
-    p1.append(f"📚 Слов в словаре: {vocab_count}")
-    if error_cats:
-        p1.append("\nТоп ошибок:")
-        for cat, cnt in error_cats[:4]:
-            p1.append(f"  • {get_category_name(cat)} — {cnt}")
-    pages.append("\n".join(l for l in p1 if l))
+    # trend arrow
+    if prev_rate is not None:
+        delta = this_rate - prev_rate
+        arr = "↓" if delta < -1 else ("↑" if delta > 1 else "→")
+        trend_str = f"{arr} {'+' if delta > 0 else ''}{round(delta,1)}% к прошлой неделе"
+    else:
+        trend_str = ""
 
-    # ── Page 2: This week detail ──
+    # ── Page 1: Overview ──
+    sep = "─" * 24
+    p1 = [f"📊 Статистика\n"]
+    header = []
+    if eng_level:
+        header.append(f"🎓 {eng_level}")
+    header.append(f"⚡ {xp} XP")
+    header.append(f"🔥 {streak} дн.")
+    p1.append("  ".join(header))
+    p1.append(sep)
+    p1.append(f"💬 Сообщений: {total_msgs}  (эта неделя: {this_msgs})")
+    p1.append(f"❌ Ошибок всего: {total_err}  ({all_rate}%)")
+
+    if this_msgs:
+        line = f"   Эта неделя: {this_errs}/{this_msgs}  ({this_rate}%)"
+        if trend_str:
+            line += f"  {trend_str}"
+        p1.append(line)
+
+    p1.append(f"📚 Слов в словаре: {vocab_count}")
+    p1.append(sep)
+
+    if error_cats:
+        p1.append("Где чаще всего ошибаешься:")
+        for i, (cat, cnt) in enumerate(error_cats[:5], 1):
+            bar = "█" * min(cnt, 10)
+            p1.append(f"  {i}. {get_category_name(cat)} {bar} {cnt}×")
+
+    pages.append("\n".join(p1))
+
+    # ── Page 2: Weekly deep-dive with GPT rule ──
+    weekly_payload = {
+        "this_week": {"messages": this_msgs, "errors": this_errs, "error_rate": this_rate},
+        "prev_week": {"messages": prev_msgs, "errors": prev_errs, "error_rate": prev_rate},
+        "top_categories": [{"category": c, "count": n} for c, n in error_cats[:3]],
+        "xp_earned": xp_week,
+        "vocab_added": vocab_count,
+    }
+    weekly_gpt = await ask_groq(WEEKLY_INSIGHTS_SYSTEM, json.dumps(weekly_payload))
+
     p2 = ["📅 Эта неделя\n"]
     if this_msgs == 0:
-        p2.append("Нет сообщений за неделю.")
+        p2.append("Нет данных за эту неделю.")
     else:
-        p2.append(f"Написано: {this_msgs} сообщений")
-        p2.append(f"Ошибок: {this_errs} ({this_rate}%)")
-        if prev_rate is not None:
-            p2.append(f"Прошлая неделя: {prev_rate}%  {trend.strip()}")
-        p2.append(f"XP за неделю: +{xp_week}")
+        p2.append(f"Сообщений: {this_msgs}  |  Ошибок: {this_errs} ({this_rate}%)")
+        if trend_str:
+            p2.append(trend_str)
+        p2.append(f"XP заработано: +{xp_week}")
+        p2.append("")
+
         if top_errors_week:
-            p2.append("\nЧастые ошибки недели:")
+            p2.append("Ошибки недели:")
             for orig, corr, expl, cnt in top_errors_week:
-                p2.append(f"\n❌ {orig}")
+                times = f" (×{cnt})" if cnt > 1 else ""
+                p2.append(f"\n❌ {orig}{times}")
                 p2.append(f"✅ {corr}")
                 if expl:
                     p2.append(f"💡 {expl}")
+            p2.append("")
+
+        if weekly_gpt:
+            focus = weekly_gpt.get("focus_rule")
+            motivation = weekly_gpt.get("motivation")
+            if focus:
+                p2.append(f"🎯 Правило недели:\n{focus}")
+            if motivation:
+                p2.append(f"\n{motivation}")
+
     pages.append("\n".join(p2))
 
     # ── Page 3: GPT Analysis ──
