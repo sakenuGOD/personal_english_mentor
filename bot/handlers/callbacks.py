@@ -749,14 +749,14 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     header.append(f"🔥 {streak} дн.")
     p1.append("  ".join(header))
     p1.append(sep)
-    p1.append(f"💬 Сообщений всего: {total_msgs}  (эта неделя: {this_msgs})")
-    p1.append(f"❌ Ошибок всего: {total_err}  ({all_rate}% сообщений)")
-
+    p1.append(f"💬 Сообщений: {total_msgs}")
     if this_msgs:
-        line = f"   Эта неделя: {this_rate}% сообщений с ошибками"
+        err_line = f"❌ Ошибки за неделю: {this_rate}%"
         if trend_str:
-            line += f"  {trend_str}"
-        p1.append(line)
+            err_line += f"  {trend_str}"
+        p1.append(err_line)
+    else:
+        p1.append(f"❌ Ошибок в сообщениях: {all_rate}%")
 
     p1.append(f"📚 Слов в словаре: {vocab_count}")
     p1.append(sep)
