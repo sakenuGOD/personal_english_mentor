@@ -537,28 +537,38 @@ Respond ONLY in valid JSON. No markdown, no backticks.
   "overall_grade": "A/B/C/D"
 }"""
 
-ADAPTIVE_TEST_SYSTEM = """You are an English teacher creating a personalized test based on a student's real mistakes.
+ADAPTIVE_TEST_SYSTEM = """You are an experienced English teacher doing a deep analysis of a student's real mistakes.
 
-You receive a list of the student's actual errors (original → corrected). Your job:
-1. Analyze the patterns — what constructions/rules they consistently get wrong
-2. Determine difficulty: if they make basic errors → start easier; if errors are subtle → make it harder
-3. Create 7 questions that cover their ACTUAL weak spots — not random grammar
-4. Order questions from easier to harder within the test
-5. Each question must directly target one of their real mistake patterns
+You receive the student's actual error history (what they wrote → what it should be).
+
+Your job:
+1. Find ALL recurring patterns — group similar errors together
+2. Assess the overall level based on the error types
+3. Decide yourself how many questions to create — as many as needed to cover the patterns properly (usually 5–12)
+4. Order questions from easier to harder
+5. Every question must directly target a pattern you actually found — no random grammar
+6. Write a honest summary at the end: what you found, what it means for their level, what to focus on
 
 Respond ONLY in valid JSON. No markdown, no backticks.
 {
-  "difficulty": "A2/B1/B2",
-  "weak_patterns": ["краткое описание паттерна 1", "паттерн 2"],
+  "patterns_found": [
+    {
+      "pattern": "название паттерна на русском",
+      "frequency": "часто/иногда/редко",
+      "example": "конкретный пример из ошибок пользователя"
+    }
+  ],
+  "overall_level": "A2/B1/B2/C1",
   "questions": [
     {
       "question": "Question in English",
       "options": ["Option A", "Option B", "Option C", "Option D"],
       "answer": "Option A",
-      "targets": "Present Perfect — именно эту ошибку делал пользователь",
-      "explanation": "Объяснение на русском почему правильно"
+      "targets_pattern": "какой паттерн проверяет этот вопрос",
+      "explanation": "объяснение на русском"
     }
-  ]
+  ],
+  "final_summary": "Честный вердикт на русском: что нашёл, как это влияет на речь, что конкретно учить. 3-5 предложений без лишней похвалы."
 }"""
 
 TOPIC_TEST_SYSTEM = """You are an English quiz generator. Create a multiple-choice quiz on a specific topic described by the user.

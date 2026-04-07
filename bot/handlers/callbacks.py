@@ -384,20 +384,22 @@ async def cb_topic_test_answer(message: Message, state: FSMContext):
         pct = round(correct_count / total * 100)
         grade = "A" if pct >= 90 else "B" if pct >= 75 else "C" if pct >= 60 else "D" if pct >= 40 else "F"
         title = data.get("topic_title", "")
+        final_summary = data.get("final_summary", "")
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔄 Ещё раз", callback_data="workout:topic_test"),
+                InlineKeyboardButton(text="🔄 Ещё раз", callback_data="curriculum:analyze"),
                 InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
             ],
         ])
         await message.answer(feedback)
-        await message.answer(
-            f"🏁 Тест завершён!\n\n"
-            f"Тема: {title}\n"
+        result_lines = [
+            f"🏁 {title}",
             f"Результат: {correct_count}/{total} ({pct}%) — {grade}",
-            reply_markup=kb,
-        )
+        ]
+        if final_summary:
+            result_lines.append(f"\n📋 Вывод:\n{final_summary}")
+        await message.answer("\n".join(result_lines), reply_markup=kb)
         await state.clear()
         return
 
@@ -544,7 +546,7 @@ async def cb_curriculum_page(callback: CallbackQuery):
 @router.callback_query(F.data == "curriculum:analyze")
 async def cb_curriculum_analyze(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer("🔬 Анализирую твои ошибки...")
+    await callback.message.answer("🔬 Анализирую все твои ошибки...")
 
     from bot.services.groq_client import ask_groq
     from bot.utils.prompts import ADAPTIVE_TEST_SYSTEM
@@ -555,7 +557,7 @@ async def cb_curriculum_analyze(callback: CallbackQuery, state: FSMContext):
             select(Error.original_text, Error.corrected_text, Error.rule_name)
             .where(Error.user_id == user_id)
             .order_by(Error.created_at.desc())
-            .limit(40)
+            .limit(100)
         )
         errors = errors_result.all()
 
@@ -574,15 +576,22 @@ async def cb_curriculum_analyze(callback: CallbackQuery, state: FSMContext):
         return
 
     questions = result.get("questions", [])
-    difficulty = result.get("difficulty", "")
-    patterns = result.get("weak_patterns", [])
+    level = result.get("overall_level", "")
+    patterns = result.get("patterns_found", [])
+    final_summary = result.get("final_summary", "")
 
-    intro_lines = [f"🎯 Адаптивный тест — {difficulty}"]
+    # Show patterns found
+    intro_lines = [f"🎯 Адаптивный тест — {level}\n"]
     if patterns:
-        intro_lines.append("\nТвои паттерны ошибок:")
+        intro_lines.append("Паттерны которые я нашёл:")
         for p in patterns:
-            intro_lines.append(f"  • {p}")
-    intro_lines.append(f"\n{len(questions)} вопросов — от лёгкого к сложному")
+            freq = p.get("frequency", "")
+            name = p.get("pattern", "")
+            example = p.get("example", "")
+            intro_lines.append(f"  • {name} ({freq})")
+            if example:
+                intro_lines.append(f'    "{example}"')
+    intro_lines.append(f"\n{len(questions)} вопросов — от лёгкого к сложному. Поехали!")
     await callback.message.answer("\n".join(intro_lines))
 
     await state.set_state(TopicTestStates.in_test)
@@ -590,7 +599,8 @@ async def cb_curriculum_analyze(callback: CallbackQuery, state: FSMContext):
         questions=questions,
         current_q=0,
         correct=0,
-        topic_title=f"Адаптивный тест ({difficulty})",
+        topic_title=f"Адаптивный тест ({level})",
+        final_summary=final_summary,  # store for end of test
     )
     await _send_topic_question(callback.message, state)
 
