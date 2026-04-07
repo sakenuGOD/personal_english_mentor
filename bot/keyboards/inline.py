@@ -265,19 +265,37 @@ def correction_vocab_keyboard(word: str) -> InlineKeyboardMarkup:
     ])
 
 
-def curriculum_keyboard(weak_topics: list[tuple[str, int]]) -> InlineKeyboardMarkup:
+def curriculum_keyboard(weak_topics: list[tuple[str, int]], page: int = 0) -> InlineKeyboardMarkup:
     from bot.services.curriculum import TOPIC_INFO
+    per_page = 3
+    total = len(weak_topics)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
+    slice_ = weak_topics[page * per_page: page * per_page + per_page]
+
     rows = []
-    for topic, count in weak_topics[:5]:
+    for topic, count in slice_:
         info = TOPIC_INFO.get(topic, {})
         name = info.get("name", topic)
         emoji = info.get("emoji", "•")
         rows.append([InlineKeyboardButton(
-            text=f"{emoji} {name}",
+            text=f"{emoji} {name} ({count} ошиб.)",
             callback_data=f"curriculum:practice:{topic}",
         )])
+
+    # Pagination nav
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"curriculum:page:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"curriculum:page:{page+1}"))
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton(text="🔬 Анализировать все ошибки", callback_data="curriculum:analyze")])
     rows.append([
-        InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:curriculum"),
+        InlineKeyboardButton(text="🔄", callback_data="progress:curriculum"),
         InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)

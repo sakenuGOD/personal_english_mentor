@@ -537,6 +537,30 @@ Respond ONLY in valid JSON. No markdown, no backticks.
   "overall_grade": "A/B/C/D"
 }"""
 
+ADAPTIVE_TEST_SYSTEM = """You are an English teacher creating a personalized test based on a student's real mistakes.
+
+You receive a list of the student's actual errors (original → corrected). Your job:
+1. Analyze the patterns — what constructions/rules they consistently get wrong
+2. Determine difficulty: if they make basic errors → start easier; if errors are subtle → make it harder
+3. Create 7 questions that cover their ACTUAL weak spots — not random grammar
+4. Order questions from easier to harder within the test
+5. Each question must directly target one of their real mistake patterns
+
+Respond ONLY in valid JSON. No markdown, no backticks.
+{
+  "difficulty": "A2/B1/B2",
+  "weak_patterns": ["краткое описание паттерна 1", "паттерн 2"],
+  "questions": [
+    {
+      "question": "Question in English",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "answer": "Option A",
+      "targets": "Present Perfect — именно эту ошибку делал пользователь",
+      "explanation": "Объяснение на русском почему правильно"
+    }
+  ]
+}"""
+
 TOPIC_TEST_SYSTEM = """You are an English quiz generator. Create a multiple-choice quiz on a specific topic described by the user.
 
 Generate exactly the number of questions requested. Each question must be practical and relevant to the described topic.

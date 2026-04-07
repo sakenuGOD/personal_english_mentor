@@ -525,6 +525,76 @@ async def cb_curriculum(callback: CallbackQuery):
     await callback.message.answer(text, reply_markup=kb)
 
 
+@router.callback_query(F.data.startswith("curriculum:page:"))
+async def cb_curriculum_page(callback: CallbackQuery):
+    page = int(callback.data.split(":")[-1])
+    await callback.answer()
+    from bot.services.curriculum import get_path_data, format_path_text
+    from bot.keyboards.inline import curriculum_keyboard
+    async with async_session() as session:
+        data = await get_path_data(session, callback.from_user.id)
+    text = format_path_text(data)
+    kb = curriculum_keyboard(data.get("weak_topics", []), page=page)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "curriculum:analyze")
+async def cb_curriculum_analyze(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer("🔬 Анализирую твои ошибки...")
+
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import ADAPTIVE_TEST_SYSTEM
+
+    user_id = callback.from_user.id
+    async with async_session() as session:
+        errors_result = await session.execute(
+            select(Error.original_text, Error.corrected_text, Error.rule_name)
+            .where(Error.user_id == user_id)
+            .order_by(Error.created_at.desc())
+            .limit(40)
+        )
+        errors = errors_result.all()
+
+    if not errors:
+        await callback.message.answer("Пока нет ошибок для анализа. Пообщайся в бизнес-чатах!")
+        return
+
+    errors_text = "\n".join(
+        f'- "{orig}" → "{corr}"' + (f" ({rule})" if rule else "")
+        for orig, corr, rule in errors
+    )
+
+    result = await ask_groq(ADAPTIVE_TEST_SYSTEM, errors_text)
+    if not result or not result.get("questions"):
+        await callback.message.answer("⚠️ Не удалось создать тест.")
+        return
+
+    questions = result.get("questions", [])
+    difficulty = result.get("difficulty", "")
+    patterns = result.get("weak_patterns", [])
+
+    intro_lines = [f"🎯 Адаптивный тест — {difficulty}"]
+    if patterns:
+        intro_lines.append("\nТвои паттерны ошибок:")
+        for p in patterns:
+            intro_lines.append(f"  • {p}")
+    intro_lines.append(f"\n{len(questions)} вопросов — от лёгкого к сложному")
+    await callback.message.answer("\n".join(intro_lines))
+
+    await state.set_state(TopicTestStates.in_test)
+    await state.update_data(
+        questions=questions,
+        current_q=0,
+        correct=0,
+        topic_title=f"Адаптивный тест ({difficulty})",
+    )
+    await _send_topic_question(callback.message, state)
+
+
 @router.callback_query(F.data.startswith("curriculum:practice:"))
 async def cb_curriculum_practice(callback: CallbackQuery, state: FSMContext):
     topic = callback.data.split(":", 2)[2]
