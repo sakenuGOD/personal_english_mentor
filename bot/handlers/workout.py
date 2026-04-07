@@ -312,15 +312,17 @@ async def process_workout_answer(message: Message, state: FSMContext):
         if explanation:
             feedback += f"\n💡 {explanation}"
     else:
-        # GPT explains why the answer is wrong with rule + formula
+        # GPT explains why the answer is wrong — detailed breakdown
         from bot.services.groq_client import ask_groq
         gpt_result = await ask_groq(
             "You are an English teacher. Explain in Russian why the student's answer is wrong. "
             "Respond ONLY in valid JSON, no markdown:\n"
             "{\n"
-            '  "explanation": "3-5 предложений: что именно студент сделал не так, назови конкретное правило, объясни логику почему нужна именно эта форма. Без воды.",\n'
-            '  "rule_name": "Название правила/времени (Past Perfect / Future Perfect / Subjunctive mood и т.д.)",\n'
-            '  "formula": "Формула конструкции, например: will have + V3"\n'
+            '  "what_went_wrong": "Что студент написал и почему это неправильно — что эта форма означает, почему она не подходит здесь. 2-3 предложения.",\n'
+            '  "why_correct": "Почему правильный ответ именно такой — логика через контекст предложения: какие слова/ситуация указывают на это правило. 2-3 предложения.",\n'
+            '  "rule": "Общее правило: когда вообще применяется эта конструкция — не только для этого примера. 1-2 предложения.",\n'
+            '  "rule_name": "Название: Third Conditional / Past Perfect / Subjunctive и т.д.",\n'
+            '  "formula": "Формула. Например: If + had + V3, would have + V3"\n'
             "}",
             f"Question: {task.get('sentence', task.get('question', ''))}\n"
             f"Student answered: {user_input}\n"
@@ -329,12 +331,23 @@ async def process_workout_answer(message: Message, state: FSMContext):
         )
 
         if gpt_result:
-            expl = gpt_result.get("explanation", "")
-            rule = gpt_result.get("rule_name", "")
+            parts = []
+            what = gpt_result.get("what_went_wrong", "")
+            why = gpt_result.get("why_correct", "")
+            rule = gpt_result.get("rule", "")
+            rule_name = gpt_result.get("rule_name", "")
             formula = gpt_result.get("formula", "")
-            feedback = f"❌ Правильно: {correct_answer}\n\n{expl}"
+
+            if what:
+                parts.append(what)
+            if why:
+                parts.append(why)
             if rule:
-                feedback += f"\n\n📐 {rule}"
+                parts.append(rule)
+
+            feedback = f"❌ Правильно: {correct_answer}\n\n" + "\n\n".join(parts)
+            if rule_name:
+                feedback += f"\n\n📐 {rule_name}"
             if formula:
                 feedback += f"\n✏️ {formula}"
         else:
