@@ -328,8 +328,9 @@ async def _full_check(
         except Exception as e:
             logger.error(f"Failed to send DM correction: {e}")
 
-    # Native tip (grammar ok but unnatural)
-    if native_tip:
+    # Native tip — ONLY when no grammar corrections found
+    # If corrections exist → corrected_full IS already the natural version, no need to repeat
+    if native_tip and not corrections:
         try:
             sep = "=" * 30
             await bot.send_message(

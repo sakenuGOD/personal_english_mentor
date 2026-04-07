@@ -235,6 +235,81 @@ _INDIRECT_Q_TRIGGERS = {"ask", "asked", "wonder", "wondered", "wondering",
                         "know", "knew", "understand", "understood", "explain",
                         "explained", "tell", "told", "remember", "forgot"}
 
+# make/do collocations: things that should use DO (not make)
+_DO_NOT_MAKE = {
+    "homework", "housework", "exercise", "sport", "yoga", "business",
+    "research", "work", "job", "task", "assignment", "shopping",
+    "cleaning", "cooking", "washing", "ironing", "gardening",
+    "damage", "harm", "good", "well", "badly", "effort", "your best",
+    "a favour", "me a favour", "nothing", "something", "everything",
+    "anything", "whatever", "the right thing", "the wrong thing",
+}
+# make/do: things that should use MAKE (not do)
+_MAKE_NOT_DO = {
+    "a mistake", "mistakes", "a decision", "decisions", "a choice",
+    "a promise", "promises", "a suggestion", "suggestions", "a request",
+    "an appointment", "appointments", "a reservation", "reservations",
+    "progress", "an effort", "efforts", "money", "a profit",
+    "a phone call", "a call", "a noise", "a sound", "a mess",
+    "a difference", "sense", "an excuse", "excuses", "a joke",
+    "jokes", "fun", "friends", "a friend",
+}
+
+# Redundant word pairs (tautologies)
+_REDUNDANT_PAIRS = {
+    "return back": "return",
+    "repeat again": "repeat",
+    "revert back": "revert",
+    "refer back": "refer",
+    "end result": "result",
+    "future plans": "plans",
+    "past history": "history",
+    "added bonus": "bonus",
+    "free gift": "gift",
+    "new innovation": "innovation",
+    "unexpected surprise": "surprise",
+    "close proximity": "proximity",
+    "advance planning": "planning",
+    "basic fundamentals": "fundamentals",
+    "final conclusion": "conclusion",
+    "how long time": "how long",
+    "very much hungry": "very hungry",
+    "very much tired": "very tired",
+    "very much busy": "very busy",
+}
+
+# "although/even though X but Y" — but is redundant after although
+_ALTHOUGH_BUT = re.compile(
+    r'\b(although|even though|though|whereas|while)\b.*?\bbut\b',
+    re.IGNORECASE
+)
+
+# "in + day_of_week" → "on + day_of_week"
+_DAYS_OF_WEEK = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+# Months for "in 15 March" → "on 15 March" / "on March 15"
+_MONTHS = {"january", "february", "march", "april", "may", "june",
+           "july", "august", "september", "october", "november", "december"}
+
+# "I am agree/hungry/ready/..." — adjective used with "am" missing "feeling/getting"
+_AM_ADJECTIVE_ERRORS = {
+    "agree": "I agree (без am — agree — глагол, не прилагательное)",
+    "disagree": "I disagree",
+    "look": None,  # "I am look" caught by Pattern 4
+}
+
+# told + that (missing object: "she told that" → "she told me/him/us that")
+_TELL_TRIGGERS = {"told", "tell", "tells"}
+
+# "verb + to + store/school/hospital..." → missing article "the"
+_PLACE_NEEDS_ARTICLE = {
+    "store", "shop", "supermarket", "mall", "cinema", "movies",
+    "theatre", "theater", "stadium", "gym", "pool", "library",
+    "museum", "office", "hotel", "restaurant", "bar", "cafe",
+    "station", "airport", "port", "terminal", "bank", "post",
+}
+# (school, hospital, church, prison, university, college = no article when used in their primary function)
+
 
 def _add_ing(verb: str) -> str:
     """Add -ing to a verb with proper spelling: live→living, run→running."""
@@ -646,6 +721,88 @@ def _check_patterns(text: str) -> list[str]:
                         )
                     break
 
+        # ── Pattern 45: "make + DO-noun" (should be DO) ──
+        # "make homework", "make exercise", "make shopping"
+        if w in ("make", "makes", "made", "making") and nxt in _DO_NOT_MAKE:
+            errors.append(f"make {nxt} → do {nxt}")
+
+        # ── Pattern 46: "do + MAKE-noun" (should be MAKE) ──
+        # "do a mistake", "do a decision", "do a phone call"
+        if w in ("do", "does", "did", "doing") and nxt2:
+            phrase2 = f"{nxt} {nxt2}"
+            if phrase2 in _MAKE_NOT_DO:
+                errors.append(f"do {phrase2} → make {phrase2}")
+            elif nxt in _MAKE_NOT_DO:
+                errors.append(f"do {nxt} → make {nxt}")
+
+        # ── Pattern 47: "in + day of week" (should be "on") ──
+        # "in Monday", "in Friday"
+        if w == "in" and nxt in _DAYS_OF_WEEK:
+            errors.append(f"in {nxt} → on {nxt}")
+
+        # ── Pattern 48: "in + number + month" (should be "on") ──
+        # "in 15 March", "born in 5 July"
+        if w == "in" and nxt and nxt.isdigit() and nxt2 in _MONTHS:
+            errors.append(f"in {nxt} {nxt2} → on {nxt} {nxt2}")
+
+        # ── Pattern 49: "I am agree/disagree" (agree is a verb, not adjective) ──
+        if w in ("am", "is", "are", "was", "were") and nxt in _AM_ADJECTIVE_ERRORS:
+            fix = _AM_ADJECTIVE_ERRORS[nxt]
+            if fix:
+                errors.append(f"{w} {nxt} → {fix}")
+
+        # ── Pattern 50: "told/tell + that" without object ──
+        # "she told that she was tired" → "she told me/him that..."
+        if w in _TELL_TRIGGERS and nxt == "that":
+            errors.append(
+                f"{w} that → {w} + объект + that "
+                f"(tell всегда требует объекта: told me/him/her/us that...)"
+            )
+
+        # ── Pattern 51: redundant pairs ──
+        # Checked below as multi-word — but catch "very much + adj" in loop
+        if w == "very" and nxt == "much" and nxt2 and len(nxt2) > 2:
+            # "very much + adjective" is wrong
+            if nxt2.endswith(("y", "ed", "ry", "sy", "py", "sy")) or nxt2 in {
+                "hungry", "tired", "busy", "happy", "angry", "sad", "glad",
+                "sick", "cold", "hot", "big", "small", "tall", "short",
+            }:
+                errors.append(f"very much {nxt2} → very {nxt2}")
+
+        # ── Pattern 52: "how long time" → "how long" ──
+        if w == "long" and nxt == "time" and prev == "how":
+            errors.append(f"how long time → how long (time — лишнее слово)")
+
+        # ── Pattern 53: "My mother she / My friend he" (redundant subject pronoun) ──
+        if w in ("she", "he", "they", "it", "we") and prev in ("mother", "father",
+            "sister", "brother", "friend", "teacher", "boss", "wife", "husband",
+            "son", "daughter", "dog", "cat", "car", "house", "team", "company"):
+            errors.append(
+                f"{prev} {w} → {prev} ... (местоимение-подлежащее лишнее после существительного)"
+            )
+
+        # ── Pattern 54: "went/go to store/shop" without article ──
+        # "I went to store" → "I went to the store"
+        if w == "to" and nxt in _PLACE_NEEDS_ARTICLE:
+            # Only flag if no article before
+            if prev not in ("the", "a", "an", "this", "that", "my", "your",
+                            "his", "her", "our", "their", "its", "some", "any"):
+                errors.append(f"to {nxt} → to the {nxt} (нужен артикль)")
+
+        # ── Pattern 55: "although X but Y" — но лишнее ──
+        # Handled below via regex
+
+        # ── Pattern 56: "he is best / she is oldest" — missing article ──
+        # "he is best student" → "he is the best student"
+        if w in ("am", "is", "are", "was", "were") and nxt in ("best", "worst",
+                 "only", "first", "last", "same", "next"):
+            if nxt2 and nxt2 not in ("the", "a", "an", "one", "thing"):
+                # Check that prev isn't "the"
+                if prev not in ("the",):
+                    errors.append(
+                        f"{w} {nxt} {nxt2} → {w} the {nxt} {nxt2} (супerlative/only требует 'the')"
+                    )
+
     # ── Pattern 23: wrong verb-preposition collocations (multi-word) ──
     for wrong, correct in _WRONG_PREPOSITIONS.items():
         if wrong in text_lower:
@@ -706,6 +863,37 @@ def _check_patterns(text: str) -> list[str]:
             f"{arrive_match.group(1)} {arrive_match.group(2)}... → "
             f"{arrive_match.group(1)} at/in {arrive_match.group(2)}..."
         )
+
+    # ── Pattern 55: "although/even though X but Y" — but redundant ──
+    if _ALTHOUGH_BUT.search(text_lower):
+        errors.append(
+            "although ... but → нельзя использовать both: "
+            "либо although/even though, либо but — не оба вместе"
+        )
+
+    # ── Pattern 57: redundant word pairs ──
+    for wrong, correct in _REDUNDANT_PAIRS.items():
+        if wrong in text_lower:
+            errors.append(f"{wrong} → {correct} (тавтология)")
+
+    # ── Pattern 58: "make + DO-nouns" multi-word ──
+    # "make my homework", "make some exercise"
+    make_do = re.search(
+        r'\b(make|makes|made|making)\s+(?:my|his|her|our|your|their|some|the|a|an)?\s*('
+        + '|'.join(_DO_NOT_MAKE) + r')\b',
+        text_lower
+    )
+    if make_do:
+        noun = make_do.group(2)
+        errors.append(f"make ... {noun} → do ... {noun}")
+
+    # ── Pattern 59: "do a photo / do photos" → "take a photo" ──
+    do_photo = re.search(
+        r'\b(do|does|did|doing)\s+(?:a|some|the)?\s*(photo|photos|picture|pictures|screenshot|screenshots)\b',
+        text_lower
+    )
+    if do_photo:
+        errors.append(f"do {do_photo.group(2)} → take {do_photo.group(2)}")
 
     # ── Pattern 24: "since/for" at end after present simple ──
     # "I work here since 2010" — regex-based
