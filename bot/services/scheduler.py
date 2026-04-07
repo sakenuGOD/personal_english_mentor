@@ -197,11 +197,13 @@ async def _check_vocab_reminder(bot):
 
 async def _check_daily_checkup(bot, now: datetime):
     """Send end-of-day language checkup based on buffered messages.
-    Fires 1 hour before each user's phrase-of-day digest hour (their local end-of-day).
+    Fires at 20:58 UTC (= 23:58 MSK) — 1h before phrase-of-day at 09:00 UTC (= 12:00 MSK).
+    Uses digest_hour to compute: checkup = digest_hour + 11 (mod 24) at minute 58.
     """
     from bot.services.groq_client import ask_groq
     from bot.utils.prompts import DAILY_CHECKUP_SYSTEM
     from sqlalchemy import delete
+    import json
 
     today = date.today()
 
@@ -216,10 +218,10 @@ async def _check_daily_checkup(bot, now: datetime):
             if user.checkup_last_sent and user.checkup_last_sent >= today:
                 continue
 
-            # Fire 1 hour before their digest (phrase of day) time
-            digest_hour = user.digest_time.hour if user.digest_time else 21
-            checkup_hour = (digest_hour - 1) % 24
-            if now.hour != checkup_hour:
+            # Checkup fires 11 hours after digest (phrase) time → for digest=9 UTC → checkup=20 UTC = 23 MSK
+            digest_hour = user.digest_time.hour if user.digest_time else 9
+            checkup_hour = (digest_hour + 11) % 24
+            if now.hour != checkup_hour or now.minute < 58:
                 continue
 
             # Get today's buffered messages
@@ -232,7 +234,6 @@ async def _check_daily_checkup(bot, now: datetime):
                 messages = buf_result.scalars().all()
 
             if len(messages) < 3:
-                # Not enough data, clean buffer anyway
                 async with async_session() as session:
                     await session.execute(
                         delete(DailyMessageBuffer).where(DailyMessageBuffer.user_id == user.id)
@@ -241,54 +242,120 @@ async def _check_daily_checkup(bot, now: datetime):
                 continue
 
             texts = [m.text for m in messages]
-            combined = "\n".join(f"- {t}" for t in texts[:50])  # cap at 50 messages
+            combined = "\n".join(f"- {t}" for t in texts[:50])
 
-            result = await ask_groq(DAILY_CHECKUP_SYSTEM, combined)
-            if not result:
+            gpt = await ask_groq(DAILY_CHECKUP_SYSTEM, combined)
+            if not gpt:
                 continue
 
+            # Build pages
+            pages = []
             sep = "═" * 28
-            lines = [sep, "🌙 Чекап дня", ""]
 
-            grade = result.get("overall_grade", "")
+            # Page 1: grade + errors found
+            p1 = [sep, "🌙 Чекап дня", ""]
+            grade = gpt.get("overall_grade", "")
+            grade_comment = gpt.get("grade_comment", "")
             if grade:
-                lines.append(f"Оценка дня: {grade}\n")
+                p1.append(f"Оценка: {grade}")
+            if grade_comment:
+                p1.append(grade_comment)
+            p1.append("")
 
-            used = result.get("constructions_used", [])
+            used = gpt.get("constructions_used", [])
             if used:
-                lines.append(f"✅ Использовал: {', '.join(used)}")
-                lines.append("")
+                p1.append(f"Конструкции: {', '.join(used)}")
+                p1.append("")
 
-            missed = result.get("missed_opportunities", [])
+            errors_found = gpt.get("errors_found", [])
+            if errors_found:
+                p1.append("❌ Ошибки:")
+                for e in errors_found:
+                    p1.append(f'\n  «{e.get("user_wrote", "")}»')
+                    p1.append(f'  → {e.get("fix", "")}')
+                    p1.append(f'  {e.get("error", "")}')
+            p1.append(sep)
+            pages.append("\n".join(p1))
+
+            # Page 2: missed opportunities + patterns + focus
+            p2 = [sep, "💡 Разбор", ""]
+            missed = gpt.get("missed_opportunities", [])
             if missed:
-                lines.append("💡 Можно было сказать лучше:")
-                for m in missed[:3]:
-                    lines.append(f'  «{m.get("user_wrote", "")}»')
-                    lines.append(f'  → {m.get("would_be_better", "")}')
-                    lines.append(f'  ({m.get("construction", "")} — {m.get("why", "")})')
-                    lines.append("")
+                p2.append("Можно было лучше:")
+                for m in missed:
+                    p2.append(f'\n  «{m.get("user_wrote", "")}»')
+                    p2.append(f'  → {m.get("would_be_better", "")}')
+                    p2.append(f'  ({m.get("construction", "")} — {m.get("why", "")})')
+                p2.append("")
 
-            strong = result.get("strong_points", [])
+            patterns = gpt.get("patterns", [])
+            if patterns:
+                p2.append("📌 Паттерны ошибок:")
+                for pat in patterns:
+                    p2.append(f"  • {pat}")
+                p2.append("")
+
+            strong = gpt.get("strong_points", [])
             if strong:
-                lines.append("💪 Хорошо:")
-                for s in strong[:2]:
-                    lines.append(f"  • {s}")
-                lines.append("")
+                p2.append("💪 Хорошо:")
+                for s in strong:
+                    p2.append(f"  • {s}")
+                p2.append("")
 
-            weak = result.get("weak_points", [])
-            if weak:
-                lines.append("📌 Слабые места:")
-                for w in weak[:2]:
-                    lines.append(f"  • {w}")
-                lines.append("")
-
-            focus = result.get("focus_tomorrow", "")
+            focus = gpt.get("focus_tomorrow", "")
             if focus:
-                lines.append(f"🎯 Завтра поработай над:\n  {focus}")
+                p2.append(f"🎯 Завтра:\n  {focus}")
+            p2.append(sep)
+            pages.append("\n".join(p2))
 
-            lines.append(sep)
+            # Auto-split pages >3500 chars
+            final_pages = []
+            for p in pages:
+                if len(p) <= 3500:
+                    final_pages.append(p)
+                else:
+                    lines = p.split("\n")
+                    chunk = []
+                    for line in lines:
+                        if len("\n".join(chunk)) + len(line) > 3400:
+                            final_pages.append("\n".join(chunk))
+                            chunk = [line]
+                        else:
+                            chunk.append(line)
+                    if chunk:
+                        final_pages.append("\n".join(chunk))
 
-            await bot.send_message(chat_id=user.id, text="\n".join(lines))
+            # Send pages with nav keyboard
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            import json as _json
+
+            errors_json = _json.dumps([
+                {"user_wrote": e.get("user_wrote", ""), "fix": e.get("fix", ""), "error": e.get("error", "")}
+                for e in errors_found
+            ], ensure_ascii=False)
+
+            def checkup_kb(page, total):
+                nav = []
+                if page > 0:
+                    nav.append(InlineKeyboardButton(text="◀️", callback_data=f"checkup:page:{page-1}"))
+                if total > 1:
+                    nav.append(InlineKeyboardButton(text=f"{page+1}/{total}", callback_data="noop"))
+                if page < total - 1:
+                    nav.append(InlineKeyboardButton(text="▶️", callback_data=f"checkup:page:{page+1}"))
+                rows = [nav] if nav else []
+                rows.append([InlineKeyboardButton(text="📝 Проработать ошибки", callback_data="checkup:practice")])
+                return InlineKeyboardMarkup(inline_keyboard=rows)
+
+            # Store pages in a simple bot-level dict keyed by user_id
+            if not hasattr(bot, "_checkup_pages"):
+                bot._checkup_pages = {}
+            bot._checkup_pages[user.id] = final_pages
+
+            await bot.send_message(
+                chat_id=user.id,
+                text=final_pages[0],
+                reply_markup=checkup_kb(0, len(final_pages))
+            )
 
             # Mark sent + clear buffer
             async with async_session() as session:

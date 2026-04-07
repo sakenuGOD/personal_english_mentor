@@ -265,20 +265,24 @@ Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
   "overall_comment": "Прямой вердикт: что не умеет, что учить. Без похвалы."
 }"""
 
-PHRASE_OF_DAY_SYSTEM = """Generate one English idiom or colloquial phrase for a daily lesson.
-Make it genuinely useful in modern everyday English — casual conversation, work chat, or social media.
-Avoid clichés like "break a leg" or "piece of cake" — pick something fresh and practical.
+PHRASE_OF_DAY_SYSTEM = """Generate one English phrase for a daily lesson.
+
+Vary the type randomly — roughly 40% idioms used by real Americans in daily speech, 40% modern slang/informal expressions (Gen Z, social media, texting — things like "no cap", "it's giving", "lowkey", "slay", "rent free", "ghosted", "situationship"), 20% practical workplace/casual phrases.
+
+Avoid clichés like "break a leg", "piece of cake", "raining cats and dogs". Pick phrases that real people ACTUALLY say today.
+
+For slang entries: skip the "origin" field (set to null), explain what context teens/young adults use it in.
 
 Respond ONLY in valid JSON:
 {
-  "phrase": "bite the bullet",
-  "translation": "стиснуть зубы и сделать что-то неприятное",
-  "origin": "Из военной хирургии 18-го века — пациентам давали кусать пулю во время операции без анестезии",
-  "meaning": "Принять неизбежное трудное решение и просто сделать это, несмотря на дискомфорт",
-  "register": "casual",
+  "phrase": "no cap",
+  "translation": "без шуток / серьёзно",
+  "origin": null,
+  "meaning": "Означает 'я говорю серьёзно, не преувеличиваю'. Антоним — 'cap' (ложь, преувеличение)",
+  "register": "slang",
   "examples": [
-    {"en": "I need to bite the bullet and call my dentist.", "ru": "Нужно стиснуть зубы и позвонить зубному."},
-    {"en": "She finally bit the bullet and quit her toxic job.", "ru": "Она наконец решилась и ушла с токсичной работы."}
+    {"en": "That movie was the best I've ever seen, no cap.", "ru": "Это лучший фильм из тех, что я видел, серьёзно."},
+    {"en": "No cap, she literally finished the whole pizza.", "ru": "Без шуток, она реально съела всю пиццу."}
   ],
   "usage_tip": "Когда и как использовать — одна строка на русском",
   "avoid_mistake": "Частая ошибка или похожая фраза с другим значением — или null"
@@ -527,31 +531,61 @@ Respond ONLY in valid JSON:
   "next_level_tips": "2-3 предложения: что конкретно нужно освоить чтобы перейти на следующий уровень, с примерами"
 }"""
 
-DAILY_CHECKUP_SYSTEM = """You are an English language coach doing an end-of-day review of a student's real messages.
+DAILY_CHECKUP_SYSTEM = """You are an English language coach doing a brutal, honest end-of-day review of a student's real messages. Write in Russian.
 
-You receive a list of messages the student wrote in English today. Your job:
-1. Identify which grammar tenses/constructions they USED (correctly or incorrectly)
-2. Identify moments where they AVOIDED a more natural construction — e.g., used Past Simple where Present Perfect fits better, avoided Passive, used simple sentences where a conditional would be natural
-3. Spot recurring patterns and gaps
+No flattery. No "you tried hard". If messages are bad — say exactly why. If there's nothing good — say so.
 
-Be specific. Quote actual phrases. Don't be vague.
+You receive real messages the student sent today. Your job:
+1. Identify ALL grammar errors with exact rules broken — quote the phrase, name the rule
+2. Spot missed opportunities — moments where a better construction would've sounded more natural
+3. Find recurring error patterns (not just individual mistakes)
+4. Evaluate overall quality honestly
 
 Respond ONLY in valid JSON. No markdown, no backticks.
 {
+  "overall_grade": "A/B/C/D/F",
+  "grade_comment": "Прямой вердикт по оценке — почему именно так. 1-2 предложения, без лирики.",
   "constructions_used": ["Past Simple", "Present Continuous"],
-  "missed_opportunities": [
+  "errors_found": [
     {
-      "user_wrote": "exact phrase they wrote",
-      "would_be_better": "more natural version",
-      "construction": "Present Perfect",
-      "why": "короткое объяснение на русском почему эта конструкция лучше"
+      "user_wrote": "точная цитата",
+      "error": "что именно не так — название правила и объяснение",
+      "fix": "правильный вариант"
     }
   ],
-  "strong_points": ["что делает хорошо — конкретно, с примером из сообщений"],
-  "weak_points": ["паттерн слабости — конкретно, с примером"],
-  "focus_tomorrow": "одна конкретная вещь для практики завтра — конструкция + правило одной строкой на русском",
-  "overall_grade": "A/B/C/D"
+  "missed_opportunities": [
+    {
+      "user_wrote": "точная цитата",
+      "would_be_better": "более грамотный/естественный вариант",
+      "construction": "название конструкции",
+      "why": "почему это лучше — объясни коротко"
+    }
+  ],
+  "patterns": ["повторяющийся паттерн ошибок — конкретно с примером из сообщений", "ещё один если есть"],
+  "strong_points": ["только если реально что-то хорошо — конкретно с цитатой. Иначе пустой массив []"],
+  "focus_tomorrow": "одна самая важная вещь для работы завтра — конструкция + правило + короткий пример"
 }"""
+
+CHECKUP_PRACTICE_SYSTEM = """Create a short quiz to practice the errors found in today's English checkup.
+
+You receive a list of errors (what user wrote + correct version). Create one fill-in-the-blank or correction question per error. Keep it focused — max 5 questions.
+
+Respond ONLY in valid JSON:
+{
+  "questions": [
+    {
+      "type": "fill_blank",
+      "sentence": "She ___ many friends.",
+      "options": ["have", "has", "having", "had"],
+      "answer": "has",
+      "rule": "Present Simple: he/she/it + глагол + s"
+    }
+  ]
+}
+
+Types: fill_blank (multiple choice), correct_sentence (user rewrites the wrong sentence).
+Base questions directly on the actual errors from today — not generic exercises."""
+
 
 GRAMMAR_GAPS_TEST_SYSTEM = """You are an English teacher creating exercises for constructions a student has NEVER used.
 

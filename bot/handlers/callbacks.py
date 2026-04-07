@@ -1658,6 +1658,140 @@ async def cb_weekly_insights(callback: CallbackQuery):
     await cb_progress_stats(callback)
 
 
+# ─── Daily Checkup navigation & practice ───
+@router.callback_query(F.data.startswith("checkup:page:"))
+async def cb_checkup_page(callback: CallbackQuery):
+    await callback.answer()
+    page = int(callback.data.split(":")[-1])
+    bot = callback.bot
+    pages = getattr(bot, "_checkup_pages", {}).get(callback.from_user.id, [])
+    if not pages:
+        await callback.answer("Данные устарели, запусти чекап заново.", show_alert=True)
+        return
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    def checkup_kb(p, total):
+        nav = []
+        if p > 0:
+            nav.append(InlineKeyboardButton(text="◀️", callback_data=f"checkup:page:{p-1}"))
+        if total > 1:
+            nav.append(InlineKeyboardButton(text=f"{p+1}/{total}", callback_data="noop"))
+        if p < total - 1:
+            nav.append(InlineKeyboardButton(text="▶️", callback_data=f"checkup:page:{p+1}"))
+        rows = [nav] if nav else []
+        rows.append([InlineKeyboardButton(text="📝 Проработать ошибки", callback_data="checkup:practice")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    await callback.message.edit_text(pages[page], reply_markup=checkup_kb(page, len(pages)))
+
+
+@router.callback_query(F.data == "checkup:practice")
+async def cb_checkup_practice(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import CHECKUP_PRACTICE_SYSTEM
+    from bot.db.models import Error
+    import json
+
+    # Pull last 10 errors to generate practice
+    async with async_session() as session:
+        errors = (await session.execute(
+            select(Error)
+            .where(Error.user_id == callback.from_user.id)
+            .order_by(Error.created_at.desc())
+            .limit(10)
+        )).scalars().all()
+
+    if not errors:
+        await callback.message.answer("Нет ошибок для практики.")
+        return
+
+    errors_input = json.dumps([
+        {"user_wrote": e.original_text, "fix": e.corrected_text, "error": e.short_explanation or ""}
+        for e in errors
+    ], ensure_ascii=False)
+
+    loading = await callback.message.answer("⏳ Составляю тест по твоим ошибкам...")
+    result = await ask_groq(CHECKUP_PRACTICE_SYSTEM, errors_input)
+    await loading.delete()
+
+    if not result or not result.get("questions"):
+        await callback.message.answer("Не удалось составить тест.")
+        return
+
+    questions = result["questions"]
+    await state.update_data(
+        checkup_practice_questions=questions,
+        checkup_practice_index=0,
+        checkup_practice_score=0,
+    )
+    await _send_checkup_practice_question(callback.message, state, questions, 0)
+
+
+async def _send_checkup_practice_question(message, state, questions, idx):
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    q = questions[idx]
+    total = len(questions)
+    lines = [f"📝 Практика по ошибкам ({idx+1}/{total})\n"]
+    lines.append(q["sentence"])
+
+    options = q.get("options", [])
+    if options:
+        lines.append("")
+        for i, opt in enumerate(options, 1):
+            lines.append(f"  {i}. {opt}")
+        lines.append("\n(напиши номер или ответ)")
+        kb = None
+    else:
+        lines.append("\n(исправь предложение)")
+        kb = None
+
+    await state.update_data(checkup_practice_index=idx)
+    await message.answer("\n".join(lines), reply_markup=kb)
+
+
+@router.message(lambda msg: True)
+async def _handle_checkup_practice_answer(message, state: FSMContext):
+    """Intercept answers during checkup practice session."""
+    fsm = await state.get_data()
+    questions = fsm.get("checkup_practice_questions")
+    if not questions:
+        return  # not in practice mode, skip
+
+    idx = fsm.get("checkup_practice_index", 0)
+    score = fsm.get("checkup_practice_score", 0)
+    q = questions[idx]
+    options = q.get("options", [])
+    correct = q["answer"].lower().strip()
+
+    user_text = message.text.strip()
+    if user_text.isdigit():
+        n = int(user_text) - 1
+        user_answer = options[n].lower().strip() if 0 <= n < len(options) else user_text.lower()
+    else:
+        user_answer = user_text.lower()
+
+    is_correct = user_answer == correct
+    if is_correct:
+        score += 1
+        await message.answer(f"✅ Верно!\n💡 {q.get('rule', '')}")
+    else:
+        await message.answer(f"❌ Неверно. Правильно: {q['answer']}\n💡 {q.get('rule', '')}")
+
+    next_idx = idx + 1
+    await state.update_data(checkup_practice_score=score)
+
+    if next_idx < len(questions):
+        await _send_checkup_practice_question(message, state, questions, next_idx)
+    else:
+        total = len(questions)
+        await state.update_data(checkup_practice_questions=None)
+        await message.answer(
+            f"🏁 Тест завершён: {score}/{total}\n"
+            + ("💪 Отлично!" if score == total else f"Повтори ошибки в журнале /mistakes")
+        )
+
+
 # ─── Daily Challenge ───
 class DailyChallengeStates(StatesGroup):
     answering = State()
