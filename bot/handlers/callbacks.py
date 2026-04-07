@@ -1729,7 +1729,7 @@ async def _send_checkup_exercise(message, state, exercises, idx):
         lines.append(f"🇷🇺 {q.get('prompt_ru', '')}")
         hint = q.get("hint", "")
         if hint:
-            lines.append(f"💡 Подсказка: {hint}")
+            lines.append(f"💡 {hint}")
         lines.append("\nПереведи на английский:")
     elif qtype == "fill_blank":
         lines.append(q.get("sentence", ""))
@@ -1739,6 +1739,10 @@ async def _send_checkup_exercise(message, state, exercises, idx):
             for i, opt in enumerate(options, 1):
                 lines.append(f"  {i}. {opt}")
         lines.append("\n(напиши номер или вариант)")
+    elif qtype == "correct_sentence":
+        lines.append("Исправь предложение:")
+        lines.append(f"\n❌ {q.get('wrong_sentence', '')}")
+        lines.append("\nНапиши правильный вариант:")
     elif qtype == "choose_correct":
         lines.append("Какое предложение правильное?")
         for i, opt in enumerate(q.get("options", []), 1):
@@ -1780,6 +1784,28 @@ async def cb_checkup_practice_answer(message, state: FSMContext):
         is_correct = eval_result.get("ok", False) if eval_result else False
         comment = eval_result.get("comment", "") if eval_result else ""
 
+        if is_correct:
+            score += 1
+            reply = f"✅ Верно!\n✍️ Эталон: {correct_en}"
+        else:
+            reply = f"❌ Не совсем.\n✍️ Правильно: {correct_en}"
+            if comment:
+                reply += f"\n💡 {comment}"
+        if explanation:
+            reply += f"\n\n{explanation}"
+
+    elif qtype == "correct_sentence":
+        correct_en = q.get("correct_sentence", "")
+        eval_prompt = (
+            f"Student wrote: \"{user_text}\"\n"
+            f"Correct answer: \"{correct_en}\"\n"
+            f"Pattern: {q.get('pattern', '')}\n"
+            f"Is the student's correction acceptable? "
+            f"Respond ONLY in JSON: {{\"ok\": true/false, \"comment\": \"короткое объяснение на русском если неверно\"}}"
+        )
+        eval_result = await ask_groq("You are a strict English teacher checking a sentence correction. Be lenient about synonyms but strict about the grammar pattern.", eval_prompt)
+        is_correct = eval_result.get("ok", False) if eval_result else False
+        comment = eval_result.get("comment", "") if eval_result else ""
         if is_correct:
             score += 1
             reply = f"✅ Верно!\n✍️ Эталон: {correct_en}"

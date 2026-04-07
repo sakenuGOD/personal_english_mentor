@@ -249,74 +249,97 @@ async def _check_daily_checkup(bot, now: datetime):
                 continue
 
             sep = "═" * 28
-            errors_found = gpt.get("errors_found", [])
-
-            # Build one continuous content blob, then auto-split
-            all_lines = [sep, "🌙 Чекап дня", ""]
-
-            grade = gpt.get("overall_grade", "")
-            grade_comment = gpt.get("grade_comment", "")
-            if grade:
-                all_lines.append(f"Оценка: {grade}")
-            if grade_comment:
-                all_lines.append(grade_comment)
-            all_lines.append("")
-
-            used = gpt.get("constructions_used", [])
-            if used:
-                all_lines.append(f"Использовал: {', '.join(used)}")
-                all_lines.append("")
-
             top_patterns = gpt.get("top_patterns", [])
-            if top_patterns:
-                all_lines.append("📌 Главные паттерны ошибок:\n")
-                for p in top_patterns:
-                    freq = p.get("frequency", "")
-                    all_lines.append(f"🔴 {p.get('pattern_name', '')}  ({freq})")
-                    all_lines.append(p.get("description", ""))
-                    examples = p.get("examples", [])
-                    if examples:
-                        for ex in examples:
-                            all_lines.append(f"  • {ex}")
-                    all_lines.append("")
+            overall = gpt.get("overall_assessment", {})
 
-            missed = gpt.get("missed_opportunities", [])
-            if missed:
-                all_lines.append("💡 Можно было лучше:")
-                for m in missed:
-                    all_lines.append(f'\n«{m.get("user_wrote", "")}»')
-                    all_lines.append(f'→ {m.get("would_be_better", "")}')
-                    all_lines.append(f'({m.get("construction", "")} — {m.get("why", "")})')
-                all_lines.append("")
-
-            strong = gpt.get("strong_points", [])
-            if strong:
-                all_lines.append("💪 Хорошо:")
-                for s in strong:
-                    all_lines.append(f"  • {s}")
-                all_lines.append("")
-
-            focus = gpt.get("focus_tomorrow", "")
-            if focus:
-                all_lines.append(f"🎯 Завтра:\n{focus}")
-            all_lines.append(sep)
-
-            # Auto-split into as many pages as needed
-            full_text = "\n".join(all_lines)
-            final_pages = []
-            if len(full_text) <= 3500:
-                final_pages = [full_text]
-            else:
-                lines = full_text.split("\n")
-                chunk = []
+            def _split_page(lines):
+                """Split lines into <=3400 char chunks."""
+                text = "\n".join(lines)
+                if len(text) <= 3400:
+                    return [text]
+                chunks, chunk = [], []
                 for line in lines:
                     if len("\n".join(chunk)) + len(line) + 1 > 3400:
-                        final_pages.append("\n".join(chunk))
+                        chunks.append("\n".join(chunk))
                         chunk = [line]
                     else:
                         chunk.append(line)
                 if chunk:
-                    final_pages.append("\n".join(chunk))
+                    chunks.append("\n".join(chunk))
+                return chunks
+
+            final_pages = []
+
+            # ── Page 1: Overall assessment ──
+            p1 = [sep, "🌙 Чекап дня", ""]
+            grade = gpt.get("overall_grade", "")
+            if grade:
+                p1.append(f"Оценка: {grade}")
+            verdict = overall.get("verdict", "")
+            if verdict:
+                p1.append("")
+                p1.append(verdict)
+
+            comm = overall.get("communication_style", "")
+            if comm:
+                p1.append("")
+                p1.append("🗣 Стиль общения:")
+                p1.append(comm)
+
+            variety = overall.get("construction_variety", "")
+            if variety:
+                p1.append("")
+                p1.append("🔧 Конструкции:")
+                p1.append(variety)
+
+            resp_q = overall.get("response_quality", "")
+            if resp_q:
+                p1.append("")
+                p1.append("💬 Качество ответов:")
+                p1.append(resp_q)
+
+            used = gpt.get("constructions_used", [])
+            if used:
+                p1.append("")
+                p1.append(f"Использовал: {', '.join(used)}")
+
+            strong = overall.get("strong_points", [])
+            if strong:
+                p1.append("")
+                p1.append("💪 Хорошо:")
+                for s in strong:
+                    p1.append(f"  • {s}")
+
+            missed = gpt.get("missed_opportunities", [])
+            if missed:
+                p1.append("")
+                p1.append("💡 Можно было лучше:")
+                for m in missed:
+                    p1.append(f'\n«{m.get("user_wrote", "")}»')
+                    p1.append(f'→ {m.get("would_be_better", "")}')
+                    p1.append(f'({m.get("construction", "")} — {m.get("why", "")})')
+
+            p1.append(sep)
+            final_pages.extend(_split_page(p1))
+
+            # ── One page per pattern ──
+            for i, pat in enumerate(top_patterns, 1):
+                pp = [sep, f"📌 Паттерн {i}/{len(top_patterns)}: {pat.get('pattern_name', '')}", ""]
+                freq = pat.get("frequency", "")
+                if freq:
+                    pp.append(f"Встречается: {freq}")
+                    pp.append("")
+                desc = pat.get("description", "")
+                if desc:
+                    pp.append(desc)
+                    pp.append("")
+                examples = pat.get("examples", [])
+                if examples:
+                    pp.append("Примеры из твоих сообщений:")
+                    for ex in examples:
+                        pp.append(f"  • {ex}")
+                pp.append(sep)
+                final_pages.extend(_split_page(pp))
 
             # Store pages + errors in bot-level dicts keyed by user_id
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

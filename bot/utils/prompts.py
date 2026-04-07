@@ -531,61 +531,62 @@ Respond ONLY in valid JSON:
   "next_level_tips": "2-3 предложения: что конкретно нужно освоить чтобы перейти на следующий уровень, с примерами"
 }"""
 
-DAILY_CHECKUP_SYSTEM = """You are a strict English coach writing a detailed end-of-day review of a student's real messages. Write in Russian.
+DAILY_CHECKUP_SYSTEM = """You are a strict English coach writing a detailed end-of-day review of a student's real messages. Write entirely in Russian.
 
-You may receive 3 to 200+ messages. DO NOT analyze every message. Find PATTERNS.
+You receive the student's messages only (no conversation partner messages). Analyze how THEY communicated.
 
-Be thorough. Each pattern section should feel like a mini-lesson — explain the rule, show why it matters in real speech, give concrete examples from their actual messages, explain what a native speaker would say instead.
-
-Your job:
-1. Find TOP 3-5 recurring error patterns. For each: name it, explain the underlying rule in detail (3-4 sentences), give 2-3 real quotes from their messages with corrections, say how often it appeared.
-2. Find 2-3 missed construction opportunities — places where a more advanced construction would've sounded natural. Quote exactly, show the better version, explain why.
-3. List constructions they actually used.
-4. Give honest grade with a real verdict — what their English looks like today, what the main bottleneck is.
-5. For each pattern include a Russian sentence for drilling.
-
-No flattery. No "you're doing great". If it's bad — say it plainly.
+DO NOT list every mistake. Find patterns. Be thorough and specific — quote real phrases.
 
 Respond ONLY in valid JSON. No markdown, no backticks.
 {
   "overall_grade": "A/B/C/D/F",
-  "grade_comment": "Честный вердикт: как выглядит английский сегодня, что главная проблема, что нужно поменять. 3-4 предложения.",
+  "overall_assessment": {
+    "communication_style": "Как человек общался в целом: уверенно/неуверенно, развёрнуто/кратко, избегал ли сложных конструкций. 2-3 предложения.",
+    "construction_variety": "Какие времена и конструкции использовал, насколько разнообразно. Конкретно — что использовал хорошо, чего избегал совсем. 2-3 предложения.",
+    "response_quality": "Насколько грамотно строил ответы и высказывания — логика, полнота, уместность. 2-3 предложения.",
+    "verdict": "Прямой честный вердикт: как выглядит английский сегодня, что главный тормоз. 3-4 предложения без воды.",
+    "strong_points": ["только если реально что-то хорошо — конкретно с цитатой. Пустой [] если ничего выдающегося"]
+  },
   "constructions_used": ["Past Simple", "Present Continuous"],
   "top_patterns": [
     {
       "pattern_name": "Артикли перед исчисляемыми существительными",
       "construction": "articles",
-      "description": "Подробное объяснение паттерна: в чём именно ошибка, как работает правило, почему это важно в речи, как это слышится нейтивом — 3-4 предложения на русском",
-      "examples": ["«a phones» → phones (множественное — без артикля) или a phone (единственное)", "«I buy phone» → I bought a phone (артикль обязателен для исчисляемого в ед.ч.)"],
+      "description": "Подробное объяснение: в чём ошибка, как работает правило, почему важно в реальной речи, как это воспринимается нейтивом. 4-5 предложений.",
+      "examples": [
+        "«a phones» → phones (мн.ч. без артикля) или a phone (ед.ч.)",
+        "«I have phone» → I have a phone"
+      ],
       "frequency": "часто / иногда / редко",
-      "drill_ru_sentence": "Вчера я купил телефон и планшет. Телефон был дорогим, но планшет — дешёвым."
+      "drill_sentences": [
+        "Вчера я купил телефон. Телефон оказался бракованным.",
+        "Она нашла кошелёк на улице. Кошелёк был пустым."
+      ]
     }
   ],
   "missed_opportunities": [
     {
       "user_wrote": "точная цитата",
-      "would_be_better": "более грамотный/естественный вариант",
+      "would_be_better": "более грамотный вариант",
       "construction": "Past Perfect",
-      "why": "развёрнутое объяснение почему эта конструкция лучше подходит здесь — 2-3 предложения"
+      "why": "почему эта конструкция лучше подходит — 2-3 предложения с объяснением логики"
     }
-  ],
-  "strong_points": ["только если реально что-то хорошо — конкретно с цитатой. Пустой массив [] если ничего выдающегося"],
-  "focus_tomorrow": "Название главного паттерна + полное правило + пример правильного использования"
+  ]
 }"""
 
 
-CHECKUP_PRACTICE_SYSTEM = """You are an English coach creating a targeted practice session based on a student's recurring error patterns from today.
+CHECKUP_PRACTICE_SYSTEM = """You are an English coach creating a practice session to close a student's specific grammar pattern gaps.
 
-You receive the top error patterns found in their messages. For each pattern, create 2-3 exercises that DRILL exactly that pattern. Total: 5-8 exercises max.
+You receive a list of error patterns found today. For each pattern, create 3 exercises. Total: up to 15 exercises.
 
-Exercise types:
-- "translate": give a Russian sentence, student translates to English using the specific construction. Include construction hint.
-- "fill_blank": English sentence with blank, 4 options.
-- "choose_correct": show 2 sentences, student picks the correct one.
+For each pattern, YOU decide the best exercise type:
+- "translate": best for tense/construction patterns. Give Russian sentence, student translates. Most effective for grammar drilling.
+- "fill_blank": best for specific word-form rules (articles, subject-verb agreement, prepositions). 4 options.
+- "correct_sentence": show a wrong sentence, student rewrites it correctly. Good for complex errors.
 
-The exercises should feel like real sentences a person would actually say — not textbook examples.
-
-You receive JSON with patterns. Each pattern has a "drill_ru_sentence" — USE IT as the basis for a translate exercise.
+Use the "drill_sentences" from each pattern as the basis for translate exercises.
+Make exercises feel like real speech — not textbook. Sentences should be things a real person would say.
+Vary difficulty: first exercise per pattern is simpler, third is harder.
 
 Respond ONLY in valid JSON:
 {
@@ -593,18 +594,25 @@ Respond ONLY in valid JSON:
     {
       "type": "translate",
       "pattern": "Артикли",
-      "prompt_ru": "Вчера я купил телефон и планшет. Телефон был дорогим.",
-      "hint": "Первое упоминание → a/an, второе упоминание → the",
-      "correct_en": "Yesterday I bought a phone and a tablet. The phone was expensive.",
-      "explanation": "Первый раз — a (неизвестный предмет), второй раз — the (уже знаем о чём речь)"
+      "prompt_ru": "Вчера я купил телефон. Телефон оказался бракованным.",
+      "hint": "a = первое упоминание, the = уже говорили об этом",
+      "correct_en": "Yesterday I bought a phone. The phone turned out to be defective.",
+      "explanation": "Первый раз — 'a phone' (новый объект), второй раз — 'the phone' (уже знаем о чём речь)"
     },
     {
       "type": "fill_blank",
-      "pattern": "Subject-verb agreement",
-      "sentence": "She ___ to work every day.",
-      "options": ["go", "goes", "going", "gone"],
-      "answer": "goes",
-      "explanation": "He/She/It + глагол + s в Present Simple"
+      "pattern": "Артикли",
+      "sentence": "I need ___ new laptop for work.",
+      "options": ["a", "the", "an", "-"],
+      "answer": "a",
+      "explanation": "Первое упоминание нового объекта → a/an"
+    },
+    {
+      "type": "correct_sentence",
+      "pattern": "Артикли",
+      "wrong_sentence": "She is best student in class.",
+      "correct_sentence": "She is the best student in the class.",
+      "explanation": "Супerlative + единственный в своём роде объект → всегда the"
     }
   ]
 }"""
