@@ -1191,6 +1191,7 @@ async def cb_daily_challenge(callback: CallbackQuery, state: FSMContext):
     await state.update_data(
         challenge_answer=answer,
         challenge_sentence=sentence,
+        challenge_options=options,
         challenge_explanation=result.get("explanation", ""),
         challenge_rule=rule_name,
     )
@@ -1220,11 +1221,15 @@ async def cb_challenge_answer(message: Message, state: FSMContext):
     rule = data.get("challenge_rule", "")
 
     user_text = message.text.strip()
-    # Handle numeric answer
-    options_line = sentence
-    user_answer = user_text.lower()
+    options = data.get("challenge_options", [])
 
-    # Accept numeric or text
+    # Map number to option
+    if user_text.isdigit():
+        n = int(user_text) - 1
+        user_answer = options[n].lower() if 0 <= n < len(options) else user_text.lower()
+    else:
+        user_answer = user_text.lower()
+
     is_correct = user_answer == answer.lower() or answer.lower() in user_answer
 
     await state.clear()
