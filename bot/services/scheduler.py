@@ -248,91 +248,88 @@ async def _check_daily_checkup(bot, now: datetime):
             if not gpt:
                 continue
 
-            # Build pages
-            pages = []
             sep = "═" * 28
+            errors_found = gpt.get("errors_found", [])
 
-            # Page 1: grade + errors found
-            p1 = [sep, "🌙 Чекап дня", ""]
+            # Build one continuous content blob, then auto-split
+            all_lines = [sep, "🌙 Чекап дня", ""]
+
             grade = gpt.get("overall_grade", "")
             grade_comment = gpt.get("grade_comment", "")
             if grade:
-                p1.append(f"Оценка: {grade}")
+                all_lines.append(f"Оценка: {grade}")
             if grade_comment:
-                p1.append(grade_comment)
-            p1.append("")
+                all_lines.append(grade_comment)
+            all_lines.append("")
 
             used = gpt.get("constructions_used", [])
             if used:
-                p1.append(f"Конструкции: {', '.join(used)}")
-                p1.append("")
+                all_lines.append(f"Конструкции: {', '.join(used)}")
+                all_lines.append("")
 
-            errors_found = gpt.get("errors_found", [])
             if errors_found:
-                p1.append("❌ Ошибки:")
+                all_lines.append("❌ Ошибки:")
                 for e in errors_found:
-                    p1.append(f'\n  «{e.get("user_wrote", "")}»')
-                    p1.append(f'  → {e.get("fix", "")}')
-                    p1.append(f'  {e.get("error", "")}')
-            p1.append(sep)
-            pages.append("\n".join(p1))
+                    all_lines.append(f'\n«{e.get("user_wrote", "")}»')
+                    all_lines.append(f'→ {e.get("fix", "")}')
+                    all_lines.append(f'{e.get("error", "")}')
+                all_lines.append("")
 
-            # Page 2: missed opportunities + patterns + focus
-            p2 = [sep, "💡 Разбор", ""]
             missed = gpt.get("missed_opportunities", [])
             if missed:
-                p2.append("Можно было лучше:")
+                all_lines.append("💡 Можно было лучше:")
                 for m in missed:
-                    p2.append(f'\n  «{m.get("user_wrote", "")}»')
-                    p2.append(f'  → {m.get("would_be_better", "")}')
-                    p2.append(f'  ({m.get("construction", "")} — {m.get("why", "")})')
-                p2.append("")
+                    all_lines.append(f'\n«{m.get("user_wrote", "")}»')
+                    all_lines.append(f'→ {m.get("would_be_better", "")}')
+                    all_lines.append(f'({m.get("construction", "")} — {m.get("why", "")})')
+                all_lines.append("")
 
             patterns = gpt.get("patterns", [])
             if patterns:
-                p2.append("📌 Паттерны ошибок:")
+                all_lines.append("📌 Паттерны:")
                 for pat in patterns:
-                    p2.append(f"  • {pat}")
-                p2.append("")
+                    all_lines.append(f"  • {pat}")
+                all_lines.append("")
 
             strong = gpt.get("strong_points", [])
             if strong:
-                p2.append("💪 Хорошо:")
+                all_lines.append("💪 Хорошо:")
                 for s in strong:
-                    p2.append(f"  • {s}")
-                p2.append("")
+                    all_lines.append(f"  • {s}")
+                all_lines.append("")
 
             focus = gpt.get("focus_tomorrow", "")
             if focus:
-                p2.append(f"🎯 Завтра:\n  {focus}")
-            p2.append(sep)
-            pages.append("\n".join(p2))
+                all_lines.append(f"🎯 Завтра:\n{focus}")
+            all_lines.append(sep)
 
-            # Auto-split pages >3500 chars
+            # Auto-split into as many pages as needed
+            full_text = "\n".join(all_lines)
             final_pages = []
-            for p in pages:
-                if len(p) <= 3500:
-                    final_pages.append(p)
-                else:
-                    lines = p.split("\n")
-                    chunk = []
-                    for line in lines:
-                        if len("\n".join(chunk)) + len(line) > 3400:
-                            final_pages.append("\n".join(chunk))
-                            chunk = [line]
-                        else:
-                            chunk.append(line)
-                    if chunk:
+            if len(full_text) <= 3500:
+                final_pages = [full_text]
+            else:
+                lines = full_text.split("\n")
+                chunk = []
+                for line in lines:
+                    if len("\n".join(chunk)) + len(line) + 1 > 3400:
                         final_pages.append("\n".join(chunk))
+                        chunk = [line]
+                    else:
+                        chunk.append(line)
+                if chunk:
+                    final_pages.append("\n".join(chunk))
 
-            # Send pages with nav keyboard
+            # Store pages + errors in bot-level dicts keyed by user_id
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            import json as _json
 
-            errors_json = _json.dumps([
-                {"user_wrote": e.get("user_wrote", ""), "fix": e.get("fix", ""), "error": e.get("error", "")}
-                for e in errors_found
-            ], ensure_ascii=False)
+            if not hasattr(bot, "_checkup_pages"):
+                bot._checkup_pages = {}
+            if not hasattr(bot, "_checkup_errors"):
+                bot._checkup_errors = {}
+            bot._checkup_pages[user.id] = final_pages
+            # Store errors from THIS checkup for practice button
+            bot._checkup_errors[user.id] = errors_found + gpt.get("missed_opportunities", [])
 
             def checkup_kb(page, total):
                 nav = []
@@ -345,11 +342,6 @@ async def _check_daily_checkup(bot, now: datetime):
                 rows = [nav] if nav else []
                 rows.append([InlineKeyboardButton(text="📝 Проработать ошибки", callback_data="checkup:practice")])
                 return InlineKeyboardMarkup(inline_keyboard=rows)
-
-            # Store pages in a simple bot-level dict keyed by user_id
-            if not hasattr(bot, "_checkup_pages"):
-                bot._checkup_pages = {}
-            bot._checkup_pages[user.id] = final_pages
 
             await bot.send_message(
                 chat_id=user.id,

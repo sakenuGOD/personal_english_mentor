@@ -1690,25 +1690,23 @@ async def cb_checkup_practice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     from bot.services.groq_client import ask_groq
     from bot.utils.prompts import CHECKUP_PRACTICE_SYSTEM
-    from bot.db.models import Error
     import json
 
-    # Pull last 10 errors to generate practice
-    async with async_session() as session:
-        errors = (await session.execute(
-            select(Error)
-            .where(Error.user_id == callback.from_user.id)
-            .order_by(Error.created_at.desc())
-            .limit(10)
-        )).scalars().all()
+    # Get errors from today's checkup stored in bot memory
+    bot = callback.bot
+    checkup_errors = getattr(bot, "_checkup_errors", {}).get(callback.from_user.id, [])
 
-    if not errors:
-        await callback.message.answer("Нет ошибок для практики.")
+    if not checkup_errors:
+        await callback.message.answer("Нет данных чекапа. Практика доступна только сразу после получения чекапа.")
         return
 
     errors_input = json.dumps([
-        {"user_wrote": e.original_text, "fix": e.corrected_text, "error": e.short_explanation or ""}
-        for e in errors
+        {
+            "user_wrote": e.get("user_wrote", ""),
+            "fix": e.get("fix", e.get("would_be_better", "")),
+            "error": e.get("error", e.get("why", ""))
+        }
+        for e in checkup_errors if e.get("user_wrote")
     ], ensure_ascii=False)
 
     loading = await callback.message.answer("⏳ Составляю тест по твоим ошибкам...")
