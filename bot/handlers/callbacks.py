@@ -1817,22 +1817,32 @@ async def cb_checkup_practice_answer(message, state: FSMContext):
             reply += f"\n\n{explanation}"
 
     elif qtype in ("fill_blank", "choose_correct"):
+        from bot.handlers.workout import _normalize_answer
         options = q.get("options", [])
-        correct = str(q.get("answer", "")).lower().strip()
+        correct_raw = str(q.get("answer", ""))
+        correct_norm = _normalize_answer(correct_raw)
         if user_text.isdigit():
             n = int(user_text) - 1
-            user_answer = options[n].lower().strip() if 0 <= n < len(options) else user_text.lower()
+            user_ans_norm = _normalize_answer(options[n]) if 0 <= n < len(options) else _normalize_answer(user_text)
         else:
-            user_answer = user_text.lower()
+            user_ans_norm = _normalize_answer(user_text)
 
-        is_correct = user_answer == correct
+        is_correct = user_ans_norm == correct_norm
         if is_correct:
             score += 1
             reply = f"✅ Верно!"
+            if explanation:
+                reply += f"\n💡 {explanation}"
         else:
-            reply = f"❌ Неверно. Правильно: {q.get('answer', '')}"
-        if explanation:
-            reply += f"\n💡 {explanation}"
+            from bot.services.groq_client import ask_groq_text
+            gpt_text = await ask_groq_text(
+                "You are an English teacher. Explain in Russian (3-5 sentences) why the student's answer is wrong. "
+                "Name the specific grammar rule, give the logic. No flattery. Plain text only.",
+                f"Question: {q.get('sentence', '')}\nStudent: {user_text}\nCorrect: {correct_raw}\nTopic: {q.get('pattern', explanation)}"
+            )
+            reply = f"❌ Правильно: {correct_raw}\n\n{gpt_text}" if gpt_text else f"❌ Правильно: {correct_raw}"
+            if explanation and not gpt_text:
+                reply += f"\n💡 {explanation}"
     else:
         is_correct = False
         reply = f"✍️ Правильный ответ: {q.get('correct_en', q.get('answer', ''))}"

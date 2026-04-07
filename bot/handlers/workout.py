@@ -253,6 +253,27 @@ def _format_task(task: dict, num: int, total: int) -> str:
     return "\n".join(lines)
 
 
+def _normalize_answer(text: str) -> str:
+    """Normalize contractions and whitespace for comparison."""
+    t = text.lower().strip().strip(".,!?")
+    contractions = {
+        "don't": "do not", "doesn't": "does not", "didn't": "did not",
+        "won't": "will not", "wouldn't": "would not", "can't": "cannot",
+        "couldn't": "could not", "shouldn't": "should not", "isn't": "is not",
+        "aren't": "are not", "wasn't": "was not", "weren't": "were not",
+        "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
+        "i'm": "i am", "i've": "i have", "i'll": "i will", "i'd": "i would",
+        "it's": "it is", "he's": "he is", "she's": "she is", "that's": "that is",
+        "there's": "there is", "they're": "they are", "we're": "we are",
+        "you're": "you are", "they've": "they have", "we've": "we have",
+        "dont": "do not", "doesnt": "does not", "didnt": "did not",
+        "wont": "will not", "cant": "cannot", "isnt": "is not", "arent": "are not",
+    }
+    for k, v in contractions.items():
+        t = t.replace(k, v)
+    return " ".join(t.split())
+
+
 @router.message(WorkoutStates.answering)
 async def process_workout_answer(message: Message, state: FSMContext):
     if not message.text:
@@ -269,44 +290,48 @@ async def process_workout_answer(message: Message, state: FSMContext):
     correct_answer = task.get("answer", "").strip()
     explanation = task.get("explanation", "") or task.get("rule", "")
 
-    # Flexible matching: fill_blank = exact word; correct_sentence = check if key fix is present
+    user_norm = _normalize_answer(user_input)
+    correct_norm = _normalize_answer(correct_answer)
+
     if task_type == "correct_sentence":
-        # Accept if user wrote the full corrected sentence OR if their answer contains the correction
-        user_norm = user_input.lower().strip(".,!?")
-        correct_norm = correct_answer.lower().strip(".,!?")
         is_correct = user_norm == correct_norm or user_norm in correct_norm or correct_norm in user_norm
     else:
-        # fill_blank / choose_right: match against word
         options = task.get("options", [])
-        user_answer = user_input.lower()
         if user_input.isdigit():
             n = int(user_input) - 1
-            user_answer = options[n].lower() if 0 <= n < len(options) else user_answer
-        is_correct = user_answer == correct_answer.lower()
-
-    if is_correct:
-        correct += 1
-        text = "✅ Правильно!"
-    else:
-        text = f"❌ Правильно: {correct_answer}"
-        if task.get("related_error"):
-            text += f"\n📎 {task['related_error']}"
-
-    if explanation:
-        text += f"\n💡 {explanation}"
+            user_norm = _normalize_answer(options[n]) if 0 <= n < len(options) else user_norm
+        is_correct = user_norm == correct_norm
 
     next_idx = current + 1
-    await state.update_data(current=next_idx, correct=correct)
+    await state.update_data(current=next_idx, correct=correct + (1 if is_correct else 0))
+
+    if is_correct:
+        feedback = "✅ Правильно!"
+        if explanation:
+            feedback += f"\n💡 {explanation}"
+    else:
+        # GPT explains why the answer is wrong
+        from bot.services.groq_client import ask_groq_text
+        gpt_text = await ask_groq_text(
+            "You are an English teacher. Explain in Russian (3-5 sentences) why the student's answer is wrong. "
+            "Name the specific grammar rule, explain why the correct form is used here, give the logic. No flattery. Plain text only.",
+            f"Question: {task.get('sentence', task.get('question', ''))}\n"
+            f"Student answered: {user_input}\n"
+            f"Correct answer: {correct_answer}\n"
+            f"Grammar topic: {explanation or task.get('topic', '')}"
+        )
+
+        feedback = f"❌ Правильно: {correct_answer}\n\n{gpt_text}" if gpt_text else f"❌ Правильно: {correct_answer}\n💡 {explanation}"
 
     if next_idx >= total:
-        await message.answer(text)
-        finish = _finish_text(correct, total)
+        await message.answer(feedback)
+        finish = _finish_text(correct + (1 if is_correct else 0), total)
         from bot.keyboards.inline import workout_done_keyboard
         await message.answer(finish, reply_markup=workout_done_keyboard())
         await state.clear()
     else:
         from bot.keyboards.inline import workout_skip_keyboard
-        await message.answer(text)
+        await message.answer(feedback)
         await message.answer(_format_task(tasks[next_idx], next_idx + 1, total), reply_markup=workout_skip_keyboard())
 
 
