@@ -516,16 +516,28 @@ async def _advance_level_phase(callback: CallbackQuery, state: FSMContext, curre
 @router.callback_query(F.data == "progress:curriculum")
 async def cb_curriculum(callback: CallbackQuery):
     await callback.answer()
-    from bot.services.curriculum import get_curriculum_progress, format_curriculum_text
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    # Default: show A2 first
+    from bot.services.curriculum import get_curriculum_progress, format_level_text
+    from bot.keyboards.inline import curriculum_keyboard
     async with async_session() as session:
         progress = await get_curriculum_progress(session, callback.from_user.id)
-    text = format_curriculum_text(progress)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:curriculum")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
-    ])
-    await callback.message.answer(text, reply_markup=kb)
+    text = format_level_text(progress, "A2")
+    await callback.message.answer(text, reply_markup=curriculum_keyboard("A2"))
+
+
+@router.callback_query(F.data.startswith("curriculum:level:"))
+async def cb_curriculum_level(callback: CallbackQuery):
+    await callback.answer()
+    level = callback.data.split(":")[-1]
+    from bot.services.curriculum import get_curriculum_progress, format_level_text
+    from bot.keyboards.inline import curriculum_keyboard
+    async with async_session() as session:
+        progress = await get_curriculum_progress(session, callback.from_user.id)
+    text = format_level_text(progress, level)
+    try:
+        await callback.message.edit_text(text, reply_markup=curriculum_keyboard(level))
+    except Exception:
+        await callback.message.answer(text, reply_markup=curriculum_keyboard(level))
 
 
 @router.callback_query(F.data == "progress:stats")

@@ -108,6 +108,12 @@ _GRAMMAR_USAGE_MAP: dict[str, str] = {
 
 MASTERED_THRESHOLD = 3  # times used correctly to consider mastered
 
+LEVEL_DESCRIPTIONS = {
+    "A2": "Базовые времена и структуры",
+    "B1": "Сложные времена, условные, пассив",
+    "B2": "Продвинутые конструкции",
+}
+
 
 async def get_curriculum_progress(session: AsyncSession, user_id: int) -> dict:
     """Returns progress per level: which constructions used, which missing."""
@@ -117,48 +123,76 @@ async def get_curriculum_progress(session: AsyncSession, user_id: int) -> dict:
     )
     usages = {row.construction: row.times_used for row in result.all()}
 
-    # Map to curriculum keys
+    # Map to curriculum keys — also count partial progress (used but < threshold)
     mastered_keys: set[str] = set()
+    in_progress: dict[str, int] = {}  # key → times used
+
     for usage_key, times in usages.items():
         curriculum_key = _GRAMMAR_USAGE_MAP.get(usage_key)
-        if curriculum_key and times >= MASTERED_THRESHOLD:
+        if not curriculum_key:
+            continue
+        if times >= MASTERED_THRESHOLD:
             mastered_keys.add(curriculum_key)
+        else:
+            in_progress[curriculum_key] = max(in_progress.get(curriculum_key, 0), times)
 
     progress = {}
     for level, constructions in CURRICULUM.items():
         done = [c for c in constructions if c in mastered_keys]
+        partial = {c: in_progress[c] for c in constructions if c in in_progress}
         todo = [c for c in constructions if c not in mastered_keys]
-        progress[level] = {"done": done, "todo": todo, "total": len(constructions)}
+        progress[level] = {
+            "done": done,
+            "partial": partial,
+            "todo": todo,
+            "total": len(constructions),
+        }
 
     return progress
 
 
-def format_curriculum_text(progress: dict) -> str:
-    lines = ["📈 Твой путь\n"]
-    for level in ["A2", "B1", "B2"]:
-        data = progress.get(level, {})
-        done = data.get("done", [])
-        todo = data.get("todo", [])
-        total = data.get("total", 1)
-        pct = round(len(done) / total * 100)
-        bar = "█" * (len(done) * 10 // total) + "░" * (10 - len(done) * 10 // total)
+def format_level_text(progress: dict, level: str) -> str:
+    data = progress.get(level, {})
+    done = data.get("done", [])
+    partial = data.get("partial", {})
+    todo = data.get("todo", [])
+    total = data.get("total", 1)
 
-        lines.append(f"━━ {level} [{bar}] {len(done)}/{total}")
+    filled = len(done) * 10 // total
+    bar = "█" * filled + "░" * (10 - filled)
+    pct = round(len(done) / total * 100)
+
+    lines = [
+        f"📈 {level} — {LEVEL_DESCRIPTIONS.get(level, '')}",
+        f"[{bar}] {len(done)}/{total} освоено ({pct}%)",
+        "",
+    ]
+
+    if done:
+        lines.append("✅ Освоено:")
         for c in done:
-            lines.append(f"  ✅ {CONSTRUCTION_NAMES.get(c, c)}")
-        for c in todo[:3]:  # show max 3 next targets
-            lines.append(f"  ⬜ {CONSTRUCTION_NAMES.get(c, c)}")
-        if len(todo) > 3:
-            lines.append(f"  … ещё {len(todo) - 3}")
+            lines.append(f"  • {CONSTRUCTION_NAMES.get(c, c)}")
         lines.append("")
 
-    lines.append("💡 Конструкция считается освоенной когда использована 3+ раз в реальных сообщениях.")
+    if partial:
+        lines.append("🔄 В процессе:")
+        for c, times in partial.items():
+            lines.append(f"  • {CONSTRUCTION_NAMES.get(c, c)} ({times}/{MASTERED_THRESHOLD}×)")
+        lines.append("")
+
+    next_targets = [c for c in todo if c not in partial][:3]
+    if next_targets:
+        lines.append("🎯 Следующие цели:")
+        for c in next_targets:
+            lines.append(f"  • {CONSTRUCTION_NAMES.get(c, c)}")
+        lines.append("")
+
+    lines.append("💡 Конструкция засчитывается когда бот видит её в твоих сообщениях 3+ раз.")
     return "\n".join(lines)
 
 
 def get_next_curriculum_construction(progress: dict, english_level: str | None) -> str | None:
     """Return the next construction to focus on in daily challenge."""
-    # Prioritize current level, then next
     order = ["A2", "B1", "B2"]
     if english_level in order:
         start = order.index(english_level)

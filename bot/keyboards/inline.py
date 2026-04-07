@@ -265,6 +265,21 @@ def correction_vocab_keyboard(word: str) -> InlineKeyboardMarkup:
     ])
 
 
+def curriculum_keyboard(level: str) -> InlineKeyboardMarkup:
+    levels = ["A2", "B1", "B2"]
+    idx = levels.index(level) if level in levels else 0
+    nav = []
+    if idx > 0:
+        nav.append(InlineKeyboardButton(text=f"◀️ {levels[idx-1]}", callback_data=f"curriculum:level:{levels[idx-1]}"))
+    nav.append(InlineKeyboardButton(text="🔄", callback_data=f"curriculum:level:{level}"))
+    if idx < len(levels) - 1:
+        nav.append(InlineKeyboardButton(text=f"{levels[idx+1]} ▶️", callback_data=f"curriculum:level:{levels[idx+1]}"))
+    return InlineKeyboardMarkup(inline_keyboard=[
+        nav,
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
+    ])
+
+
 def vocab_reminder_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
