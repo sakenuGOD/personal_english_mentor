@@ -25,9 +25,8 @@ async def scheduler_loop(bot):
             await _check_daily_challenge(bot, now)
             if now.weekday() == 6:
                 await _check_weekly_insights(bot, now)
-            # End-of-day checkup at 23:58
-            if now.hour == 23 and now.minute == 58:
-                await _check_daily_checkup(bot, now)
+            # End-of-day checkup: per-user, fires 1h before their phrase-of-day digest
+            await _check_daily_checkup(bot, now)
             # Vocab reminder — check every 30 minutes
             if tick % 30 == 0:
                 await _check_vocab_reminder(bot)
@@ -197,7 +196,9 @@ async def _check_vocab_reminder(bot):
 
 
 async def _check_daily_checkup(bot, now: datetime):
-    """Send end-of-day language checkup based on buffered messages."""
+    """Send end-of-day language checkup based on buffered messages.
+    Fires 1 hour before each user's phrase-of-day digest hour (their local end-of-day).
+    """
     from bot.services.groq_client import ask_groq
     from bot.utils.prompts import DAILY_CHECKUP_SYSTEM
     from sqlalchemy import delete
@@ -213,6 +214,12 @@ async def _check_daily_checkup(bot, now: datetime):
     for user in users:
         try:
             if user.checkup_last_sent and user.checkup_last_sent >= today:
+                continue
+
+            # Fire 1 hour before their digest (phrase of day) time
+            digest_hour = user.digest_time.hour if user.digest_time else 21
+            checkup_hour = (digest_hour - 1) % 24
+            if now.hour != checkup_hour:
                 continue
 
             # Get today's buffered messages
