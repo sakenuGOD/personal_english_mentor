@@ -1337,14 +1337,37 @@ async def cb_mistakes(callback: CallbackQuery, state: FSMContext):
 
 # ─── Grammar Map ───
 @router.callback_query(F.data == "progress:grammar_map")
-async def cb_grammar_map(callback: CallbackQuery):
+async def cb_grammar_map(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer("⏳ Строю карту грамматики...")
-    from bot.services.stats import get_grammar_map
+    from bot.services.stats import get_grammar_map, format_grammar_page
     from bot.keyboards.inline import grammar_map_keyboard
     async with async_session() as session:
-        text = await get_grammar_map(session, callback.from_user.id)
-    await callback.message.answer(text, reply_markup=grammar_map_keyboard())
+        data = await get_grammar_map(session, callback.from_user.id)
+    await state.update_data(grammar_map_data=data)
+    text, total = format_grammar_page(data, 0)
+    await callback.message.answer(text, reply_markup=grammar_map_keyboard(0, total))
+
+
+@router.callback_query(F.data.startswith("grammar:page:"))
+async def cb_grammar_page(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.split(":")[-1])
+    await callback.answer()
+    from bot.services.stats import format_grammar_page
+    from bot.keyboards.inline import grammar_map_keyboard
+    fsm_data = await state.get_data()
+    data = fsm_data.get("grammar_map_data")
+    if not data:
+        # Re-fetch if state lost
+        async with async_session() as session:
+            from bot.services.stats import get_grammar_map
+            data = await get_grammar_map(session, callback.from_user.id)
+        await state.update_data(grammar_map_data=data)
+    text, total = format_grammar_page(data, page)
+    try:
+        await callback.message.edit_text(text, reply_markup=grammar_map_keyboard(page, total))
+    except Exception:
+        await callback.message.answer(text, reply_markup=grammar_map_keyboard(page, total))
 
 
 # ─── Weekly Insights (kept for scheduler backward compat) ───

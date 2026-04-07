@@ -312,21 +312,27 @@ Respond ONLY in valid JSON:
   "verdict": "Краткий вердикт — 1-2 предложения на русском"
 }"""
 
-GRAMMAR_MAP_SYSTEM = """Analyze a student's grammar construction usage and give a concise profile.
+GRAMMAR_MAP_SYSTEM = """Analyze a student's grammar construction usage. Be specific and honest — no filler.
 
 You receive:
 - used: list of {construction, times_used, days_since_last_use}
 - never_used: list of construction names
 
+Rules:
+- "level_estimate": base it on WHAT constructions appear in "used", not just count. If only Present Simple and Future — A2. If Conditionals and Perfect tenses — B1/B2.
+- "insight": 2-3 sentences. Mention SPECIFIC constructions by name. Say something meaningful like "ты используешь Present Perfect правильно, но никогда не используешь Passive Voice — это заметно в речи"
+- "strength": one specific construction they use confidently (most used, recent)
+- "gap": the most important construction from never_used that limits their level RIGHT NOW — be specific why
+- "next_step": one concrete action — not "learn Present Continuous" but "попробуй описывать что сейчас происходит вокруг тебя на английском — I am sitting, the sun is shining"
+
 Respond ONLY in valid JSON:
 {
-  "mastered": ["construction_name"],
-  "active": ["construction_name"],
-  "dormant": [{"construction": "past_perfect", "days_ago": 45}],
-  "never_used": ["conditional_3", "passive_voice"],
   "level_estimate": "B1",
-  "insight": "2-3 предложения на русском — что это говорит об уровне пользователя",
-  "focus": "Одна конкретная конструкция для изучения следующей — и почему, на русском"
+  "insight": "конкретный анализ на русском",
+  "strength": "construction_name",
+  "gap": "construction_name",
+  "gap_reason": "почему именно эта конструкция важна сейчас — на русском",
+  "next_step": "конкретное действие на русском"
 }"""
 
 WEEKLY_INSIGHTS_SYSTEM = """Generate a weekly English learning report based on student statistics.

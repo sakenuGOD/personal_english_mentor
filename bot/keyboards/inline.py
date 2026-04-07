@@ -310,11 +310,21 @@ def vocab_reminder_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def grammar_map_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:grammar_map")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
+def grammar_map_keyboard(page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"grammar:page:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"grammar:page:{page+1}"))
+    rows = []
+    if nav:
+        rows.append(nav)
+    rows.append([
+        InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:grammar_map"),
+        InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back"),
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def mistakes_keyboard(page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:

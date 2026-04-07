@@ -139,8 +139,8 @@ CONSTRUCTION_LABELS = {
 }
 
 
-async def get_grammar_map(session: AsyncSession, user_id: int) -> str:
-    """Build grammar usage map with AI analysis."""
+async def get_grammar_map(session: AsyncSession, user_id: int) -> dict:
+    """Build grammar usage map data with AI analysis. Returns structured dict."""
     now = datetime.utcnow()
 
     rows = await session.execute(
@@ -155,57 +155,86 @@ async def get_grammar_map(session: AsyncSession, user_id: int) -> str:
 
     never_used = [c for c in ALL_CONSTRUCTIONS if c not in usages]
 
+    active = sorted([u for u in used if u["days_since_last_use"] <= 30], key=lambda x: -x["times_used"])
+    dormant = sorted([u for u in used if u["days_since_last_use"] > 30], key=lambda x: x["days_since_last_use"])
+
     from bot.services.groq_client import ask_groq
     from bot.utils.prompts import GRAMMAR_MAP_SYSTEM
     payload = {"used": used, "never_used": never_used}
     gpt = await ask_groq(GRAMMAR_MAP_SYSTEM, json.dumps(payload))
 
-    # Build text output
-    lines = ["🗺 Карта грамматики", ""]
+    return {
+        "active": active,
+        "dormant": dormant,
+        "never_used": never_used,
+        "gpt": gpt or {},
+    }
 
-    # Used constructions grouped
-    if used:
-        active = sorted(
-            [u for u in used if u["days_since_last_use"] <= 30],
-            key=lambda x: -x["times_used"]
-        )
-        dormant = [u for u in used if u["days_since_last_use"] > 30]
 
-        if active:
-            lines.append("✅ Активно использую:")
-            for u in active[:8]:
-                label = CONSTRUCTION_LABELS.get(u["construction"], u["construction"])
-                lines.append(f"  • {label} — {u['times_used']}× ")
+def format_grammar_page(data: dict, page: int) -> tuple[str, int]:
+    """Format grammar map for a specific page. Returns (text, total_pages)."""
+    active = data.get("active", [])
+    dormant = data.get("dormant", [])
+    never_used = data.get("never_used", [])
+    gpt = data.get("gpt", {})
 
+    PER_PAGE = 8
+    pages = []
+
+    # Page 0: AI insight + active constructions
+    p0_lines = ["🗺 Карта грамматики\n"]
+    level = gpt.get("level_estimate")
+    if level:
+        p0_lines.append(f"Оценка уровня: {level}\n")
+
+    insight = gpt.get("insight")
+    if insight:
+        p0_lines.append(f"💡 {insight}\n")
+
+    strength = gpt.get("strength")
+    if strength:
+        label = CONSTRUCTION_LABELS.get(strength, strength)
+        p0_lines.append(f"💪 Сильная сторона: {label}")
+
+    gap = gpt.get("gap")
+    gap_reason = gpt.get("gap_reason")
+    if gap:
+        label = CONSTRUCTION_LABELS.get(gap, gap)
+        p0_lines.append(f"🎯 Главный пробел: {label}")
+        if gap_reason:
+            p0_lines.append(f"   {gap_reason}")
+
+    next_step = gpt.get("next_step")
+    if next_step:
+        p0_lines.append(f"\n✏️ Попробуй сегодня:\n{next_step}")
+
+    pages.append("\n".join(p0_lines))
+
+    # Page 1: Active constructions (all)
+    if active:
+        p1_lines = ["✅ Активно использую:\n"]
+        for u in active:
+            label = CONSTRUCTION_LABELS.get(u["construction"], u["construction"])
+            p1_lines.append(f"  • {label} — {u['times_used']}×")
         if dormant:
-            lines.append("")
-            lines.append("💤 Давно не использовал:")
+            p1_lines.append("\n💤 Давно не использовал:")
             for u in dormant[:5]:
                 label = CONSTRUCTION_LABELS.get(u["construction"], u["construction"])
-                lines.append(f"  • {label} ({u['days_since_last_use']} дн. назад)")
+                p1_lines.append(f"  • {label} ({u['days_since_last_use']} дн. назад)")
+        pages.append("\n".join(p1_lines))
 
+    # Pages 2+: Never used (paginated)
     if never_used:
-        lines.append("")
-        lines.append("❌ Никогда не использовал:")
-        for c in never_used[:8]:
-            lines.append(f"  • {CONSTRUCTION_LABELS.get(c, c)}")
-        if len(never_used) > 8:
-            lines.append(f"  ... и ещё {len(never_used) - 8}")
+        chunks = [never_used[i:i+PER_PAGE] for i in range(0, len(never_used), PER_PAGE)]
+        for chunk in chunks:
+            lines = ["❌ Не использовал:\n"]
+            for c in chunk:
+                lines.append(f"  • {CONSTRUCTION_LABELS.get(c, c)}")
+            pages.append("\n".join(lines))
 
-    if gpt:
-        level = gpt.get("level_estimate")
-        insight = gpt.get("insight")
-        focus = gpt.get("focus")
-        if level:
-            lines.insert(1, f"Оценка уровня: {level}")
-        if insight:
-            lines.append("")
-            lines.append(f"💡 {insight}")
-        if focus:
-            lines.append("")
-            lines.append(f"🎯 Что практиковать дальше: {focus}")
-
-    return "\n".join(lines)
+    total = len(pages)
+    page = max(0, min(page, total - 1))
+    return pages[page], total
 
 
 def format_stats(stats: dict) -> str:
