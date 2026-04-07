@@ -513,6 +513,130 @@ async def _advance_level_phase(callback: CallbackQuery, state: FSMContext, curre
 
 
 # ─── Analysis ───
+@router.callback_query(F.data == "progress:curriculum")
+async def cb_curriculum(callback: CallbackQuery):
+    await callback.answer()
+    from bot.services.curriculum import get_curriculum_progress, format_curriculum_text
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    async with async_session() as session:
+        progress = await get_curriculum_progress(session, callback.from_user.id)
+    text = format_curriculum_text(progress)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:curriculum")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
+    ])
+    await callback.message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "progress:stats")
+async def cb_progress_stats(callback: CallbackQuery):
+    """Combined: weekly digest + level analysis."""
+    await callback.answer()
+    await callback.message.answer("📊 Собираю статистику...")
+
+    from sqlalchemy import func
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import ANALYSIS_SYSTEM
+    from bot.services.stats import get_category_name
+    from bot.services.digest import generate_weekly_insights
+
+    user_id = callback.from_user.id
+
+    # Weekly insights first (no extra GPT call — already has its own)
+    async with async_session() as session:
+        weekly = await generate_weekly_insights(session, user_id)
+
+    if weekly:
+        await callback.message.answer(weekly)
+
+    # Level analysis
+    async with async_session() as session:
+        error_cats = (await session.execute(
+            select(Error.category, func.count(Error.id))
+            .where(Error.user_id == user_id)
+            .group_by(Error.category)
+            .order_by(func.count(Error.id).desc())
+        )).all()
+
+        total_err = (await session.execute(
+            select(func.count(Error.id)).where(Error.user_id == user_id)
+        )).scalar() or 0
+
+        from bot.db.models import GrammarUsage, Message
+        constr = (await session.execute(
+            select(GrammarUsage.construction, GrammarUsage.times_used)
+            .where(GrammarUsage.user_id == user_id)
+            .order_by(GrammarUsage.times_used.desc())
+            .limit(10)
+        )).all()
+
+        total_msgs = (await session.execute(
+            select(func.count(Message.id)).where(Message.user_id == user_id)
+        )).scalar() or 0
+
+        vocab_count = (await session.execute(
+            select(func.count(Vocabulary.id)).where(Vocabulary.user_id == user_id)
+        )).scalar() or 0
+
+    if total_msgs < 5:
+        await callback.message.answer(
+            "Пока мало данных.\nПообщайся больше в чатах — соберём статистику.",
+            reply_markup=progress_keyboard()
+        )
+        return
+
+    analysis_input = (
+        f"Error stats (total: {total_err}):\n"
+        + "\n".join(f"- {get_category_name(c)}: {n}" for c, n in error_cats)
+        + f"\n\nGrammar constructions:\n"
+        + "\n".join(f"- {c}: {n} times" for c, n in constr)
+        + f"\n\nTotal messages: {total_msgs}\nVocab: {vocab_count}"
+    )
+
+    result = await ask_groq(ANALYSIS_SYSTEM, analysis_input)
+    if not result:
+        await callback.message.answer("⚠️ Не удалось выполнить анализ.", reply_markup=progress_keyboard())
+        return
+
+    lines = [f"🔍 Уровень: {result.get('level', '?')}"]
+    desc = result.get("level_description", "")
+    if desc:
+        lines.append(f"   {desc}")
+    lines.append("")
+
+    strengths = result.get("strengths", [])
+    if strengths:
+        lines.append("💪 Сильные стороны:")
+        for s in strengths:
+            lines.append(f"  • {s}")
+        lines.append("")
+
+    weaknesses = result.get("weaknesses", [])
+    if weaknesses:
+        lines.append("📝 Слабые места:")
+        for w in weaknesses:
+            lines.append(f"  • {w}")
+        lines.append("")
+
+    problem = result.get("main_problem", "")
+    if problem:
+        lines.append(f"⚠️ Главная проблема: {problem}")
+        lines.append("")
+
+    recs = result.get("recommendations", [])
+    if recs:
+        lines.append("📌 Рекомендации:")
+        for r in recs:
+            lines.append(f"  • {r}")
+        lines.append("")
+
+    next_tips = result.get("next_level_tips", "")
+    if next_tips:
+        lines.append(f"🚀 До следующего уровня: {next_tips}")
+
+    await callback.message.answer("\n".join(lines), reply_markup=progress_keyboard())
+
+
 @router.callback_query(F.data == "progress:analysis")
 async def cb_progress_analysis(callback: CallbackQuery):
     await callback.answer()
@@ -1113,18 +1237,10 @@ async def cb_grammar_map(callback: CallbackQuery):
     await callback.message.answer(text, reply_markup=grammar_map_keyboard())
 
 
-# ─── Weekly Insights ───
+# ─── Weekly Insights (kept for scheduler backward compat) ───
 @router.callback_query(F.data == "progress:weekly")
 async def cb_weekly_insights(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.answer("⏳ Собираю инсайты недели...")
-    from bot.services.digest import generate_weekly_insights
-    async with async_session() as session:
-        text = await generate_weekly_insights(session, callback.from_user.id)
-    if text:
-        await callback.message.answer(text)
-    else:
-        await callback.message.answer("За эту неделю пока нет достаточно данных. Пообщайся больше!")
+    await cb_progress_stats(callback)
 
 
 # ─── Daily Challenge ───

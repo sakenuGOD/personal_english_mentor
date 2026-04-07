@@ -16,6 +16,8 @@ _NEW_COLUMNS = [
     "ALTER TABLE users ADD COLUMN api_balance_initial VARCHAR(50)",
     "ALTER TABLE users ADD COLUMN api_balance_set_at DATETIME",
     "ALTER TABLE users ADD COLUMN challenge_last_sent DATE",
+    "ALTER TABLE users ADD COLUMN checkup_last_sent DATE",
+    "ALTER TABLE users ADD COLUMN english_level VARCHAR(10)",
 ]
 
 

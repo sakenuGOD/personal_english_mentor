@@ -64,8 +64,8 @@ def ai_chat_keyboard() -> InlineKeyboardMarkup:
 def progress_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🎯 Провериться", callback_data="progress:workout_menu"),
-            InlineKeyboardButton(text="🔍 Анализ", callback_data="progress:analysis"),
+            InlineKeyboardButton(text="🎯 Тренировки", callback_data="progress:workout_menu"),
+            InlineKeyboardButton(text="📈 Мой путь", callback_data="progress:curriculum"),
         ],
         [
             InlineKeyboardButton(text="📚 Словарь", callback_data="progress:vocab"),
@@ -73,7 +73,7 @@ def progress_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="🗺 Грамматика", callback_data="progress:grammar_map"),
-            InlineKeyboardButton(text="📊 Неделя", callback_data="progress:weekly"),
+            InlineKeyboardButton(text="📊 Статистика", callback_data="progress:stats"),
         ],
         [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
     ])

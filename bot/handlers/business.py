@@ -8,7 +8,7 @@ from aiogram.types import Message, BusinessConnection, MessageReactionUpdated
 from sqlalchemy import select, update
 
 from bot.db.database import async_session
-from bot.db.models import User
+from bot.db.models import User, DailyMessageBuffer
 from bot.services.grammar import (
     check_grammar, save_error, save_message,
     format_chat_correction, format_detailed_correction,
@@ -161,6 +161,11 @@ async def handle_business_message(message: Message, bot: Bot):
             user = result.scalar_one_or_none()
 
     mode = user.correction_mode if user else "balanced"
+
+    # Save to daily buffer for end-of-day analysis (no GPT, just accumulate)
+    async with async_session() as session:
+        session.add(DailyMessageBuffer(user_id=user_id, text=text))
+        await session.commit()
 
     # === LOCAL CHECK (free) ===
     has_local = await local_has_errors(text)

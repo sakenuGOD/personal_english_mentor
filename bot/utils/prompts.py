@@ -511,6 +511,32 @@ Respond ONLY in valid JSON:
   "action_plan": ["конкретное действие 1 (например: повтори правило Past Simple — после did всегда начальная форма)", "действие 2", "действие 3"]
 }"""
 
+DAILY_CHECKUP_SYSTEM = """You are an English language coach doing an end-of-day review of a student's real messages.
+
+You receive a list of messages the student wrote in English today. Your job:
+1. Identify which grammar tenses/constructions they USED (correctly or incorrectly)
+2. Identify moments where they AVOIDED a more natural construction — e.g., used Past Simple where Present Perfect fits better, avoided Passive, used simple sentences where a conditional would be natural
+3. Spot recurring patterns and gaps
+
+Be specific. Quote actual phrases. Don't be vague.
+
+Respond ONLY in valid JSON. No markdown, no backticks.
+{
+  "constructions_used": ["Past Simple", "Present Continuous"],
+  "missed_opportunities": [
+    {
+      "user_wrote": "exact phrase they wrote",
+      "would_be_better": "more natural version",
+      "construction": "Present Perfect",
+      "why": "короткое объяснение на русском почему эта конструкция лучше"
+    }
+  ],
+  "strong_points": ["что делает хорошо — конкретно, с примером из сообщений"],
+  "weak_points": ["паттерн слабости — конкретно, с примером"],
+  "focus_tomorrow": "одна конкретная вещь для практики завтра — конструкция + правило одной строкой на русском",
+  "overall_grade": "A/B/C/D"
+}"""
+
 TOPIC_TEST_SYSTEM = """You are an English quiz generator. Create a multiple-choice quiz on a specific topic described by the user.
 
 Generate exactly the number of questions requested. Each question must be practical and relevant to the described topic.

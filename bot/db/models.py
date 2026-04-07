@@ -37,6 +37,8 @@ class User(Base):
     api_balance_initial = Column(String(50))   # user-entered starting balance
     api_balance_set_at = Column(DateTime)      # when it was set
     challenge_last_sent = Column(Date)         # last daily challenge date
+    checkup_last_sent = Column(Date)           # last end-of-day checkup date
+    english_level = Column(String(10))         # A1/A2/B1/B2/C1 from level test
     created_at = Column(DateTime, server_default=func.now())
 
     errors = relationship("Error", back_populates="user")
@@ -157,4 +159,14 @@ class RoleplaySession(Base):
     messages = Column(JSON)
     grade = Column(String(2))
     feedback = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class DailyMessageBuffer(Base):
+    """Accumulates user's English messages during the day for end-of-day analysis."""
+    __tablename__ = "daily_message_buffer"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id"))
+    text = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
