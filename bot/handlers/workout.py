@@ -165,6 +165,7 @@ class WorkoutStates(StatesGroup):
     level_reading = State()
     level_writing = State()
     level_speaking = State()
+    translation_waiting = State()
 
 
 # ═══════════════════════════════════════════
@@ -765,4 +766,124 @@ def _finish_text(correct: int, total: int) -> str:
         text += "\n👍 Неплохо."
     else:
         text += "\n💪 Нужно подтянуть."
+
+
+# ═══════════════════════════════════════════
+#  TRANSLATION WORKOUT (переведи фразу)
+# ═══════════════════════════════════════════
+
+async def start_translation_workout(callback_or_message, state: FSMContext, user_id: int):
+    """Generate a Russian phrase and ask user to translate it."""
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import TRANSLATION_CHALLENGE_SYSTEM
+    from bot.db.models import User as UserModel
+    from sqlalchemy import select as sa_select
+
+    target = callback_or_message.message if isinstance(callback_or_message, CallbackQuery) else callback_or_message
+
+    # Get user level
+    async with async_session() as session:
+        u = await session.execute(sa_select(UserModel).where(UserModel.id == user_id))
+        user = u.scalar_one_or_none()
+    level = user.level if user else "B1"
+
+    # Get already used phrases from FSM
+    data = await state.get_data()
+    used = data.get("translation_used", [])
+
+    await target.answer("⏳ Генерирую фразу...")
+    avoid = f"Avoid these phrases: {used[-5:]}" if used else ""
+    result = await ask_groq(
+        TRANSLATION_CHALLENGE_SYSTEM,
+        f"Level: {level}. {avoid}",
+    )
+
+    if not result or not result.get("russian"):
+        await target.answer("⚠️ Не удалось сгенерировать фразу. Попробуй ещё раз.")
+        return
+
+    russian = result["russian"]
+    context = result.get("context")
+
+    used.append(russian)
+    await state.set_state(WorkoutStates.translation_waiting)
+    await state.update_data(translation_phrase=russian, translation_used=used)
+
+    text = "🇷🇺→🇬🇧 Переведи на английский:\n\n"
+    text += f'"{russian}"'
+    if context:
+        text += f"\n\n💬 Контекст: {context}"
+
+    from bot.keyboards.inline import workout_skip_keyboard
+    await target.answer(text, reply_markup=workout_skip_keyboard())
+
+
+@router.message(WorkoutStates.translation_waiting)
+async def process_translation_answer(message: Message, state: FSMContext):
+    """Evaluate user's translation."""
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import TRANSLATION_EVAL_SYSTEM
+    from bot.keyboards.inline import translation_result_keyboard
+    import json
+
+    user_answer = message.text.strip()
+    data = await state.get_data()
+    russian = data.get("translation_phrase", "")
+
+    await message.answer("⏳ Оцениваю...")
+
+    payload = json.dumps({"russian": russian, "student": user_answer})
+    result = await ask_groq(TRANSLATION_EVAL_SYSTEM, payload)
+
+    if not result:
+        await message.answer("⚠️ Не удалось оценить. Попробуй ещё раз.", reply_markup=translation_result_keyboard())
+        await state.clear()
+        return
+
+    total = result.get("total", 0)
+    reference = result.get("reference", "")
+    perfect = result.get("perfect", [])
+    improve = result.get("improve", [])
+    verdict = result.get("verdict", "")
+
+    # Score emoji
+    if total >= 90:
+        badge = "🔥"
+    elif total >= 75:
+        badge = "👍"
+    elif total >= 60:
+        badge = "📈"
+    else:
+        badge = "💪"
+
+    lines = [
+        f"{badge} Оценка: {total}/100",
+        "",
+        f"  Грамматика:    {result.get('grammar', 0)}/30",
+        f"  Естественность: {result.get('naturalness', 0)}/35",
+        f"  Лексика:       {result.get('vocabulary', 0)}/35",
+    ]
+
+    if reference:
+        lines.append("")
+        lines.append(f'📌 Эталон: "{reference}"')
+
+    if perfect:
+        lines.append("")
+        lines.append("✅ Хорошо:")
+        for p in perfect:
+            lines.append(f"  • {p}")
+
+    if improve:
+        lines.append("")
+        lines.append("💡 Можно лучше:")
+        for imp in improve:
+            lines.append(f"  • {imp}")
+
+    if verdict:
+        lines.append("")
+        lines.append(verdict)
+
+    await state.clear()
+    await message.answer("\n".join(lines), reply_markup=translation_result_keyboard())
     return text

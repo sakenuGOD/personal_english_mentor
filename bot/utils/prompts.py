@@ -299,6 +299,81 @@ Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
   "overall_tip": "Главная проблема и как её исправить — строго, конкретно, на русском, на ты"
 }"""
 
+PHRASE_OF_DAY_SYSTEM = """Generate one English idiom or colloquial phrase for a daily lesson.
+Make it genuinely useful in modern everyday English — casual conversation, work chat, or social media.
+Avoid clichés like "break a leg" or "piece of cake" — pick something fresh and practical.
+
+Respond ONLY in valid JSON:
+{
+  "phrase": "bite the bullet",
+  "translation": "стиснуть зубы и сделать что-то неприятное",
+  "origin": "Из военной хирургии 18-го века — пациентам давали кусать пулю во время операции без анестезии",
+  "meaning": "Принять неизбежное трудное решение и просто сделать это, несмотря на дискомфорт",
+  "register": "casual",
+  "examples": [
+    {"en": "I need to bite the bullet and call my dentist.", "ru": "Нужно стиснуть зубы и позвонить зубному."},
+    {"en": "She finally bit the bullet and quit her toxic job.", "ru": "Она наконец решилась и ушла с токсичной работы."}
+  ],
+  "usage_tip": "Когда и как использовать — одна строка на русском",
+  "avoid_mistake": "Частая ошибка или похожая фраза с другим значением — или null"
+}"""
+
+TRANSLATION_CHALLENGE_SYSTEM = """Generate a Russian phrase for a translation exercise.
+The phrase should be practical, modern, conversational — something a real person would actually say.
+Not textbook sentences. Match the difficulty to the specified level.
+
+Respond ONLY in valid JSON:
+{
+  "russian": "Я застрял в пробке и опоздаю на встречу",
+  "difficulty": "B1",
+  "context": "Краткий контекст ситуации на русском — или null если очевидно"
+}"""
+
+TRANSLATION_EVAL_SYSTEM = """Evaluate a student's English translation of a Russian phrase.
+Be honest but constructive. Score on 100 points: grammar(30) + naturalness(35) + vocabulary(35).
+
+Input format: {"russian": "...", "student": "..."}
+
+Respond ONLY in valid JSON:
+{
+  "total": 85,
+  "grammar": 28,
+  "naturalness": 30,
+  "vocabulary": 27,
+  "reference": "The most natural English translation a native would say",
+  "perfect": ["что было сделано хорошо — конкретно, на русском"],
+  "improve": ["что можно было лучше — конкретно, на русском"],
+  "verdict": "Краткий вердикт — 1-2 предложения на русском"
+}"""
+
+GRAMMAR_MAP_SYSTEM = """Analyze a student's grammar construction usage and give a concise profile.
+
+You receive:
+- used: list of {construction, times_used, days_since_last_use}
+- never_used: list of construction names
+
+Respond ONLY in valid JSON:
+{
+  "mastered": ["construction_name"],
+  "active": ["construction_name"],
+  "dormant": [{"construction": "past_perfect", "days_ago": 45}],
+  "never_used": ["conditional_3", "passive_voice"],
+  "level_estimate": "B1",
+  "insight": "2-3 предложения на русском — что это говорит об уровне пользователя",
+  "focus": "Одна конкретная конструкция для изучения следующей — и почему, на русском"
+}"""
+
+WEEKLY_INSIGHTS_SYSTEM = """Generate a weekly English learning report based on student statistics.
+Be honest, specific, and motivating — like a coach who respects the student's time.
+
+You receive a JSON with this week's and last week's data.
+
+Respond ONLY in valid JSON:
+{
+  "focus_rule": "Конкретное правило для изучения на следующей неделе — на русском, 2-3 предложения с примером",
+  "motivation": "Честная мотивационная строка — без пустых похвал, на русском"
+}"""
+
 TRANSLATE_SYSTEM = """You are a translator. Detect the language of the input.
 If Russian — translate to English. If English — translate to Russian.
 Respond ONLY in valid JSON:

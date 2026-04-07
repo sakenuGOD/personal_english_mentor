@@ -31,6 +31,8 @@ class User(Base):
     last_active_date = Column(Date)
     business_connection_id = Column(String(255))
     groq_api_key = Column(String(255))
+    phrase_last_sent = Column(Date)
+    weekly_last_sent = Column(Date)
     created_at = Column(DateTime, server_default=func.now())
 
     errors = relationship("Error", back_populates="user")

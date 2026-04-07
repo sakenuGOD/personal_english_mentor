@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 _msg_cache: dict[tuple, dict] = {}
 MAX_CACHE = 500
 
+# Cache word breakdowns for inline save buttons: {user_id: [word_breakdown_items]}
+_explain_cache: dict[int, list[dict]] = {}
+MAX_EXPLAIN_CACHE = 200
+
 # Short phrases that don't need checking
 SKIP_PHRASES = {
     "ok", "okay", "yes", "no", "yeah", "yep", "nope", "sure", "thanks",
@@ -243,8 +247,20 @@ async def _explain_message(text: str, user_id: int, chat, bot: Bot):
 
     lines.append(sep)
 
+    # Build word-save keyboard if there are words to save
+    from bot.keyboards.inline import explain_save_keyboard
+    markup = explain_save_keyboard(breakdown) if breakdown else None
+
+    # Cache breakdown for callback handler
+    if breakdown:
+        if len(_explain_cache) > MAX_EXPLAIN_CACHE:
+            oldest_keys = list(_explain_cache.keys())[:MAX_EXPLAIN_CACHE // 2]
+            for k in oldest_keys:
+                _explain_cache.pop(k, None)
+        _explain_cache[user_id] = breakdown
+
     try:
-        await bot.send_message(chat_id=user_id, text="\n".join(lines))
+        await bot.send_message(chat_id=user_id, text="\n".join(lines), reply_markup=markup)
     except Exception as e:
         logger.error(f"Failed to send meaning explanation: {e}")
 
@@ -329,8 +345,12 @@ async def _full_check(
 
     if corrections:
         detailed = format_detailed_correction(corrections, chat_name)
+        # Offer to save the key corrected word/form to vocabulary
+        from bot.keyboards.inline import correction_vocab_keyboard
+        key_word = corrections[0].get("corrected", "").strip()[:40]
+        markup = correction_vocab_keyboard(key_word) if key_word else None
         try:
-            await bot.send_message(chat_id=user_id, text=detailed)
+            await bot.send_message(chat_id=user_id, text=detailed, reply_markup=markup)
         except Exception as e:
             logger.error(f"Failed to send DM correction: {e}")
 

@@ -10,6 +10,7 @@ from aiogram.enums import ParseMode
 
 from bot.config import BOT_TOKEN
 from bot.db.database import init_db
+from bot.services.scheduler import scheduler_loop
 from bot.handlers import (
     commands, business, check, howtosay, words, meaning,
     roleplay, voice, ai_chat, workout, callbacks, translate, inline_query,
@@ -72,6 +73,7 @@ async def main():
         return await handler(event, data)
 
     logger.info("Bot is running!")
+    asyncio.create_task(scheduler_loop(bot))
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(
         bot,

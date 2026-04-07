@@ -71,6 +71,10 @@ def progress_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📚 Словарь", callback_data="progress:vocab"),
             InlineKeyboardButton(text="📓 Ошибки", callback_data="progress:mistakes"),
         ],
+        [
+            InlineKeyboardButton(text="🗺 Грамматика", callback_data="progress:grammar_map"),
+            InlineKeyboardButton(text="📊 Неделя", callback_data="progress:weekly"),
+        ],
         [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
     ])
 
@@ -79,6 +83,7 @@ def workout_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Тест по ошибкам", callback_data="workout:test")],
         [InlineKeyboardButton(text="🎯 Общая тренировка", callback_data="workout:general")],
+        [InlineKeyboardButton(text="🇷🇺→🇬🇧 Переведи фразу", callback_data="workout:translation")],
         [InlineKeyboardButton(text="📋 Тест на уровень", callback_data="workout:level_test")],
         [InlineKeyboardButton(text="🎭 Диалог-тренировка", callback_data="workout:roleplay")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
@@ -221,6 +226,45 @@ def vocab_answer_keyboard(word_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Помню ✅", callback_data=f"vocab:yes:{word_id}"),
             InlineKeyboardButton(text="Не помню ❌", callback_data=f"vocab:no:{word_id}"),
         ],
+    ])
+
+
+def translation_result_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Ещё фразу", callback_data="workout:translation"),
+            InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+        ],
+    ])
+
+
+def explain_save_keyboard(breakdown: list[dict]) -> InlineKeyboardMarkup | None:
+    """Inline buttons to save words from word_breakdown to vocabulary."""
+    if not breakdown:
+        return None
+    buttons = []
+    for i, w in enumerate(breakdown[:5]):
+        word = w.get("word", "")
+        if word:
+            buttons.append([InlineKeyboardButton(
+                text=f"➕ {word}",
+                callback_data=f"vocab:explain_save:{i}",
+            )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+
+
+def correction_vocab_keyboard(word: str) -> InlineKeyboardMarkup:
+    """Button to save the corrected word to vocabulary."""
+    safe_word = word[:40].strip()
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"➕ В словарь: {safe_word}", callback_data=f"word:add:{safe_word}")],
+    ])
+
+
+def grammar_map_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:grammar_map")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
     ])
 
 

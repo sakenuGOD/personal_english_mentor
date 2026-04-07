@@ -699,3 +699,73 @@ async def cb_mistakes(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(text, reply_markup=mistakes_keyboard(page, total_pages))
     await callback.answer()
+
+
+# ─── Grammar Map ───
+@router.callback_query(F.data == "progress:grammar_map")
+async def cb_grammar_map(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("⏳ Строю карту грамматики...")
+    from bot.services.stats import get_grammar_map
+    from bot.keyboards.inline import grammar_map_keyboard
+    async with async_session() as session:
+        text = await get_grammar_map(session, callback.from_user.id)
+    await callback.message.answer(text, reply_markup=grammar_map_keyboard())
+
+
+# ─── Weekly Insights ───
+@router.callback_query(F.data == "progress:weekly")
+async def cb_weekly_insights(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("⏳ Собираю инсайты недели...")
+    from bot.services.digest import generate_weekly_insights
+    async with async_session() as session:
+        text = await generate_weekly_insights(session, callback.from_user.id)
+    if text:
+        await callback.message.answer(text)
+    else:
+        await callback.message.answer("За эту неделю пока нет достаточно данных. Пообщайся больше!")
+
+
+# ─── Translation Workout ───
+@router.callback_query(F.data == "workout:translation")
+async def cb_workout_translation(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    from bot.handlers.workout import start_translation_workout
+    await start_translation_workout(callback, state, callback.from_user.id)
+
+
+# ─── Vocab save from explain breakdown ───
+@router.callback_query(F.data.startswith("vocab:explain_save:"))
+async def cb_explain_vocab_save(callback: CallbackQuery):
+    try:
+        idx = int(callback.data.split(":")[-1])
+    except ValueError:
+        await callback.answer("Ошибка")
+        return
+
+    user_id = callback.from_user.id
+    from bot.handlers.business import _explain_cache
+    breakdown = _explain_cache.get(user_id, [])
+
+    if idx >= len(breakdown):
+        await callback.answer("Слово больше недоступно")
+        return
+
+    w = breakdown[idx]
+    word = w.get("word", "")
+    translation = w.get("meaning", "")
+
+    if not word:
+        await callback.answer("Нет слова для сохранения")
+        return
+
+    async with async_session() as session:
+        result = await add_word(session, user_id, word, translation, "")
+
+    if result:
+        async with async_session() as session:
+            await add_xp(session, user_id, XP_NEW_WORD, "word_added")
+        await callback.answer(f"✅ '{word}' добавлено! +{XP_NEW_WORD} XP")
+    else:
+        await callback.answer(f"'{word}' уже в словаре")

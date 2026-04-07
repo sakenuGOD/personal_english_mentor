@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
@@ -102,6 +103,109 @@ async def get_user_stats(session: AsyncSession, user_id: int) -> dict:
         "level": user.level if user else "newbie",
         "streak": user.streak if user else 0,
     }
+
+
+ALL_CONSTRUCTIONS = [
+    "present_simple", "present_continuous", "present_perfect", "present_perfect_continuous",
+    "past_simple", "past_continuous", "past_perfect", "past_perfect_continuous",
+    "future_simple", "future_continuous", "future_perfect", "future_perfect_continuous",
+    "conditional_0", "conditional_1", "conditional_2", "conditional_3",
+    "passive_voice", "reported_speech", "gerund", "infinitive", "modal_verbs", "relative_clauses",
+]
+
+CONSTRUCTION_LABELS = {
+    "present_simple": "Present Simple",
+    "present_continuous": "Present Continuous",
+    "present_perfect": "Present Perfect",
+    "present_perfect_continuous": "Present Perfect Continuous",
+    "past_simple": "Past Simple",
+    "past_continuous": "Past Continuous",
+    "past_perfect": "Past Perfect",
+    "past_perfect_continuous": "Past Perfect Continuous",
+    "future_simple": "Future Simple",
+    "future_continuous": "Future Continuous",
+    "future_perfect": "Future Perfect",
+    "future_perfect_continuous": "Future Perfect Continuous",
+    "conditional_0": "Conditional 0",
+    "conditional_1": "Conditional 1",
+    "conditional_2": "Conditional 2",
+    "conditional_3": "Conditional 3",
+    "passive_voice": "Passive Voice",
+    "reported_speech": "Reported Speech",
+    "gerund": "Gerund",
+    "infinitive": "Infinitive",
+    "modal_verbs": "Modal Verbs",
+    "relative_clauses": "Relative Clauses",
+}
+
+
+async def get_grammar_map(session: AsyncSession, user_id: int) -> str:
+    """Build grammar usage map with AI analysis."""
+    now = datetime.utcnow()
+
+    rows = await session.execute(
+        select(GrammarUsage).where(GrammarUsage.user_id == user_id)
+    )
+    usages = {g.construction: g for g in rows.scalars().all()}
+
+    used = []
+    for c, g in usages.items():
+        days_since = (now - g.last_used).days if g.last_used else 999
+        used.append({"construction": c, "times_used": g.times_used, "days_since_last_use": days_since})
+
+    never_used = [c for c in ALL_CONSTRUCTIONS if c not in usages]
+
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import GRAMMAR_MAP_SYSTEM
+    payload = {"used": used, "never_used": never_used}
+    gpt = await ask_groq(GRAMMAR_MAP_SYSTEM, json.dumps(payload))
+
+    # Build text output
+    lines = ["🗺 Карта грамматики", ""]
+
+    # Used constructions grouped
+    if used:
+        active = sorted(
+            [u for u in used if u["days_since_last_use"] <= 30],
+            key=lambda x: -x["times_used"]
+        )
+        dormant = [u for u in used if u["days_since_last_use"] > 30]
+
+        if active:
+            lines.append("✅ Активно использую:")
+            for u in active[:8]:
+                label = CONSTRUCTION_LABELS.get(u["construction"], u["construction"])
+                lines.append(f"  • {label} — {u['times_used']}× ")
+
+        if dormant:
+            lines.append("")
+            lines.append("💤 Давно не использовал:")
+            for u in dormant[:5]:
+                label = CONSTRUCTION_LABELS.get(u["construction"], u["construction"])
+                lines.append(f"  • {label} ({u['days_since_last_use']} дн. назад)")
+
+    if never_used:
+        lines.append("")
+        lines.append("❌ Никогда не использовал:")
+        for c in never_used[:8]:
+            lines.append(f"  • {CONSTRUCTION_LABELS.get(c, c)}")
+        if len(never_used) > 8:
+            lines.append(f"  ... и ещё {len(never_used) - 8}")
+
+    if gpt:
+        level = gpt.get("level_estimate")
+        insight = gpt.get("insight")
+        focus = gpt.get("focus")
+        if level:
+            lines.insert(1, f"Оценка уровня: {level}")
+        if insight:
+            lines.append("")
+            lines.append(f"💡 {insight}")
+        if focus:
+            lines.append("")
+            lines.append(f"🎯 Что практиковать дальше: {focus}")
+
+    return "\n".join(lines)
 
 
 def format_stats(stats: dict) -> str:
