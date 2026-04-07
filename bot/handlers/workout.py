@@ -312,18 +312,33 @@ async def process_workout_answer(message: Message, state: FSMContext):
         if explanation:
             feedback += f"\n💡 {explanation}"
     else:
-        # GPT explains why the answer is wrong
-        from bot.services.groq_client import ask_groq_text
-        gpt_text = await ask_groq_text(
-            "You are an English teacher. Explain in Russian (3-5 sentences) why the student's answer is wrong. "
-            "Name the specific grammar rule, explain why the correct form is used here, give the logic. No flattery. Plain text only.",
+        # GPT explains why the answer is wrong with rule + formula
+        from bot.services.groq_client import ask_groq
+        gpt_result = await ask_groq(
+            "You are an English teacher. Explain in Russian why the student's answer is wrong. "
+            "Respond ONLY in valid JSON, no markdown:\n"
+            "{\n"
+            '  "explanation": "3-5 предложений: что именно студент сделал не так, назови конкретное правило, объясни логику почему нужна именно эта форма. Без воды.",\n'
+            '  "rule_name": "Название правила/времени (Past Perfect / Future Perfect / Subjunctive mood и т.д.)",\n'
+            '  "formula": "Формула конструкции, например: will have + V3"\n'
+            "}",
             f"Question: {task.get('sentence', task.get('question', ''))}\n"
             f"Student answered: {user_input}\n"
             f"Correct answer: {correct_answer}\n"
             f"Grammar topic: {explanation or task.get('topic', '')}"
         )
 
-        feedback = f"❌ Правильно: {correct_answer}\n\n{gpt_text}" if gpt_text else f"❌ Правильно: {correct_answer}\n💡 {explanation}"
+        if gpt_result:
+            expl = gpt_result.get("explanation", "")
+            rule = gpt_result.get("rule_name", "")
+            formula = gpt_result.get("formula", "")
+            feedback = f"❌ Правильно: {correct_answer}\n\n{expl}"
+            if rule:
+                feedback += f"\n\n📐 {rule}"
+            if formula:
+                feedback += f"\n✏️ {formula}"
+        else:
+            feedback = f"❌ Правильно: {correct_answer}\n💡 {explanation}"
 
     if next_idx >= total:
         await message.answer(feedback)
@@ -906,7 +921,6 @@ async def process_translation_answer(message: Message, state: FSMContext):
     improve = result.get("improve", [])
     verdict = result.get("verdict", "")
 
-    # Score emoji
     if total >= 90:
         badge = "🔥"
     elif total >= 75:
@@ -916,34 +930,23 @@ async def process_translation_answer(message: Message, state: FSMContext):
     else:
         badge = "💪"
 
-    lines = [
-        f"{badge} Оценка: {total}/100",
-        "",
-        f"  Грамматика:    {result.get('grammar', 0)}/30",
-        f"  Естественность: {result.get('naturalness', 0)}/35",
-        f"  Лексика:       {result.get('vocabulary', 0)}/35",
-    ]
+    lines = [f"{badge} {total}/100"]
 
     if reference:
-        lines.append("")
-        lines.append(f'📌 Эталон: "{reference}"')
-
-    if perfect:
-        lines.append("")
-        lines.append("✅ Хорошо:")
-        for p in perfect:
-            lines.append(f"  • {p}")
+        lines.append(f'\n📌 "{reference}"')
 
     if improve:
         lines.append("")
-        lines.append("💡 Можно лучше:")
         for imp in improve:
-            lines.append(f"  • {imp}")
+            lines.append(f"❌ {imp}")
+
+    if perfect:
+        lines.append("")
+        for p in perfect:
+            lines.append(f"✅ {p}")
 
     if verdict:
-        lines.append("")
-        lines.append(verdict)
+        lines.append(f"\n{verdict}")
 
     await state.clear()
     await message.answer("\n".join(lines), reply_markup=translation_result_keyboard())
-    return text

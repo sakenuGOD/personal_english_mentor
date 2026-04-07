@@ -292,12 +292,23 @@ TRANSLATION_CHALLENGE_SYSTEM = """Generate a Russian phrase for a translation ex
 The phrase should be practical, modern, conversational — something a real person would actually say.
 Not textbook sentences. Match the difficulty to the specified level.
 
-Vary complexity: 40% of the time generate simple/medium phrases, 40% complex ones (conditional sentences, passive voice, reported speech, present perfect with nuance, phrasal verbs, idioms), 20% very advanced native-level expressions that require knowledge of idioms or complex grammar.
-Make the student actually THINK — don't generate "Я люблю кофе" or other trivial phrases.
+Cover the FULL spectrum of grammar — vary across sessions:
+- Present Simple / Continuous / Perfect / Perfect Continuous
+- Past Simple / Continuous / Perfect / Perfect Continuous
+- Future Simple / Future Continuous / Future Perfect / Future Perfect Continuous
+- Conditionals (0/1/2/3 and mixed)
+- Passive Voice (various tenses)
+- Reported Speech
+- Phrasal verbs and idioms
+- Complex subordinate clauses
+
+Distribution: 20% basic (A2), 40% intermediate (B1-B2), 40% advanced (B2-C1) — conditionals, passive, perfect continuous, reported speech, idioms.
+NEVER generate trivial phrases like "Я люблю кофе" or "Как дела".
+Make the student actually THINK. Prefer phrases that have a tricky grammar trap.
 
 Respond ONLY in valid JSON:
 {
-  "russian": "Если бы ты предупредил меня заранее, я бы успел подготовиться",
+  "russian": "К тому времени как мы приедем, они уже будут ждать нас два часа",
   "difficulty": "B2",
   "context": "Краткий контекст ситуации на русском — или null если очевидно"
 }"""
@@ -307,13 +318,17 @@ Be honest, direct, no flattery. Score on 100 points: grammar(30) + naturalness(3
 
 Input format: {"russian": "...", "student": "..."}
 
-Rules for feedback:
-- If wrong tense was used: NAME the tense they used vs what was needed. E.g. "ты использовал Present Simple вместо Past Perfect — потому что действие завершилось до другого прошедшего действия"
-- If wrong word order: explain the English rule behind it
-- If unnatural phrasing: give the native alternative and explain WHY it sounds wrong
-- "improve" bullets must be SPECIFIC — name the exact error, explain the grammar rule, give the correction
-- "perfect" bullets: only mention if something was genuinely good — no generic praise
-- "verdict": 1-2 честных предложения. No filler like "перевод в целом понятен"
+Rules for feedback — "improve" array:
+Each bullet = ONE specific error. Format:
+"[Что написал] → [Как надо]. [Почему: название правила + логика в 1-2 предложениях]. [Формула если применимо]"
+
+Examples of good improve bullets:
+- "where is near shop → where the nearest shop is. В косвенном вопросе (после do you know / I wonder) порядок слов прямой, не вопросительный. Формула: do you know + where + subject + verb"
+- "had been finished → will have finished. Ты использовал Past Perfect Passive, но действие происходит В БУДУЩЕМ (by the time she arrives). Future Perfect: will have + V3"
+- "first station metro → nearest metro station. first = первый по счёту, nearest = ближайший. Порядок: прилагательное + noun (nearest metro station, not metro station nearest)"
+
+"perfect" array: only if something is genuinely correct and non-trivial. Empty array [] if nothing special.
+"verdict": 1-2 честных предложения. No filler.
 
 Respond ONLY in valid JSON:
 {
@@ -322,8 +337,8 @@ Respond ONLY in valid JSON:
   "naturalness": 30,
   "vocabulary": 27,
   "reference": "The most natural English translation a native would say",
-  "perfect": ["конкретно что хорошо — или пустой массив если ничего"],
-  "improve": ["КОНКРЕТНАЯ ошибка: что не так, почему, как правильно — на русском"],
+  "perfect": [],
+  "improve": ["error → fix. Why. Formula."],
   "verdict": "Честный вердикт 1-2 предложения на русском"
 }"""
 
