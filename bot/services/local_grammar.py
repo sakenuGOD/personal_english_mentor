@@ -172,6 +172,8 @@ _ABSOLUTE_ADJECTIVES = {
 _WRONG_PREPOSITIONS = {
     "depend of": "depend on", "depend from": "depend on",
     "consist from": "consist of", "consist in": "consist of",
+    "consists from": "consists of", "consists in": "consists of",
+    "arrived to": "arrived at/in", "arrive to": "arrive at/in",
     "arrive to": "arrive at/in", "arrive at home": "arrive home",
     "married with": "married to",
     "interested for": "interested in",
@@ -487,14 +489,18 @@ def _check_patterns(text: str) -> list[str]:
                 errors.append(f"{prev2} {prev} ... {w} → нужен Present Perfect ({form})")
 
         # ── Pattern 16: stative verbs in continuous ──
-        # "I am knowing", "she is understanding", "we are believing"
+        # "I am knowing", "she is believing", "we are understanding"
         if w in ("am", "is", "are", "was", "were") and nxt and nxt.endswith("ing"):
-            stem = nxt[:-3]  # remov-ing
-            # Handle double consonant: "running" → "run"
-            if stem and stem[-1] == stem[-2:]:
-                stem = stem[:-1]
-            if stem in _STATIVE_VERBS or nxt[:-3] in _STATIVE_VERBS:
-                errors.append(f"{w} {nxt} → {stem} не используется в Continuous")
+            # Reconstruct base form from -ing: believing→believe, knowing→know, running→run
+            stem3 = nxt[:-3]  # remove -ing
+            # Double consonant: running→run, stopping→stop
+            if len(stem3) >= 2 and stem3[-1] == stem3[-2]:
+                stem3 = stem3[:-1]
+            # Silent-e verbs: believing→believe, living→live
+            stem_e = stem3 + "e"
+            base = stem3 if stem3 in _STATIVE_VERBS else (stem_e if stem_e in _STATIVE_VERBS else None)
+            if base:
+                errors.append(f"{w} {nxt} → {base} не используется в Continuous")
 
         # ── Pattern 17: "did ... used to" (should be "did ... use to") ──
         # "did used to", "did you used to", "didn't used to"
@@ -789,6 +795,50 @@ def _check_patterns(text: str) -> list[str]:
                             "his", "her", "our", "their", "its", "some", "any"):
                 errors.append(f"to {nxt} → to the {nxt} (нужен артикль)")
 
+        # ── Pattern 60: "am/is/are been" (missing have/has) ──
+        # "I am been waiting" → "I have been waiting"
+        if w in ("am", "is", "are") and nxt == "been":
+            errors.append(f"{w} been → have/has been (Present Perfect: нужен have/has, не {w})")
+
+        # ── Pattern 61: "in + time" preposition errors ──
+        # "in 7am/8pm" → "at 7am", "at 2020" → "in 2020"
+        if w == "in" and nxt and re.match(r'^\d+(?:am|pm)$', nxt):
+            errors.append(f"in {nxt} → at {nxt} (время суток: at 7am, at noon)")
+        if w == "at" and nxt and re.match(r'^\d{4}$', nxt):
+            errors.append(f"at {nxt} → in {nxt} (год: in 2020, in 1999)")
+
+        # ── Pattern 62: "news/series/means/species + are/were" ──
+        # "the news are bad" → "the news is bad"
+        _SINGULAR_PLURAL_LOOK = {"news", "means", "series", "species", "mathematics",
+                                 "physics", "economics", "statistics", "athletics"}
+        if w in _SINGULAR_PLURAL_LOOK and nxt in ("are", "were"):
+            errors.append(f"{w} {nxt} → {w} is/was ({w} — всегда единственное число)")
+
+        # ── Pattern 63: "Rarely/Seldom + subj + verb" without inversion ──
+        # "Rarely he comes" → "Rarely does he come"
+        if w in ("rarely", "seldom", "barely", "scarcely", "hardly") and i == 0:
+            if nxt in ("he", "she", "it", "i", "we", "they", "you"):
+                errors.append(
+                    f"{w} {nxt} ... → {w} + вспомогательный + субъект "
+                    f"(инверсия: Rarely does he...)"
+                )
+
+        # ── Pattern 64: "arrived to" → "arrived at/in" ──
+        if w in ("arrive", "arrived", "arrives", "arriving") and nxt == "to":
+            errors.append(f"{w} to → {w} at/in (arrive не берёт предлог to)")
+
+        # ── Pattern 65: indirect question with inversion (told/asked where IS) ──
+        # "told me where is the station" — with object before wh-clause
+        if w in ("where", "when", "how", "why", "what", "who", "whether"):
+            if nxt in ("is", "are", "was", "were", "do", "does", "did",
+                      "has", "have", "had", "will", "would", "can", "could"):
+                # Check if there's an indirect trigger word earlier in sentence
+                if any(t in words[:i] for t in _INDIRECT_Q_TRIGGERS):
+                    errors.append(
+                        f"{w} {nxt} → в косвенном вопросе инверсия запрещена: "
+                        f"{w} + субъект + глагол"
+                    )
+
         # ── Pattern 55: "although X but Y" — но лишнее ──
         # Handled below via regex
 
@@ -863,6 +913,21 @@ def _check_patterns(text: str) -> list[str]:
             f"{arrive_match.group(1)} {arrive_match.group(2)}... → "
             f"{arrive_match.group(1)} at/in {arrive_match.group(2)}..."
         )
+
+    # ── Pattern 66: statement ending in bare "yes/no" (should be tag question) ──
+    # "two faced you are yes" / "you understand no"
+    # Heuristic: 3-8 word sentence, ends in yes/no, doesn't start with subject pronoun
+    if len(words) >= 3:
+        if words[-1] in ("yes", "no") and words[0] not in (
+            "i", "you", "he", "she", "it", "we", "they", "my", "your", "his", "her",
+            "our", "their", "this", "that", "the", "a", "an", "is", "are", "do",
+            "does", "did", "have", "has", "had", "will", "would", "can", "could",
+            "should", "might", "may",
+        ):
+            errors.append(
+                f"...{words[-1]} → порядок слов неверный или используй tag question: "
+                f"aren't you? / right? / isn't it?"
+            )
 
     # ── Pattern 55: "although/even though X but Y" — but redundant ──
     if _ALTHOUGH_BUT.search(text_lower):
@@ -981,14 +1046,13 @@ async def check_local(text: str) -> list[dict] | None:
 #  COMBINED CHECKER
 # ═══════════════════════════════════════════════
 
-async def has_errors(text: str, use_gpt_fallback: bool = True) -> bool:
+async def has_errors(text: str) -> bool:
     """
-    3-layer grammar error detector:
-    1. Pattern checker  — instant, free, catches ~40 specific ESL patterns
-    2. LanguageTool API — fast, free, catches 5000+ rule-based errors
-    3. GPT mini-check   — cheap ($0.000015), catches ANYTHING incl. word order
+    2-layer grammar error detector:
+    1. Pattern checker  — instant, free, 65+ ESL-specific patterns
+    2. LanguageTool API — fast, free, 5000+ rule-based errors
 
-    Returns True if errors found, False if clean.
+    Returns True if errors found, False if clean, True if API failed (safe fallback).
     """
     # ── Layer 1: Pattern checker (instant, free) ──
     pattern_errors = _check_patterns(text)
@@ -996,31 +1060,12 @@ async def has_errors(text: str, use_gpt_fallback: bool = True) -> bool:
         logger.info(f"[L1-Pattern] found: {pattern_errors[:2]}")
         return True
 
-    # ── Layer 2: LanguageTool API (fast, free) ──
+    # ── Layer 2: LanguageTool API ──
     lt_errors = await check_local(text)
     if lt_errors is None:
-        logger.warning("[L2-LT] API failed → fallback to GPT mini-check")
-        # Don't return True immediately — try GPT mini-check
-    elif lt_errors:
+        return True  # API failed → send to GPT to be safe
+    if lt_errors:
         logger.info(f"[L2-LT] found: {[(e['rule'], e['original']) for e in lt_errors]}")
         return True
-
-    # ── Layer 3: GPT mini-check (cheap, catches word order / naturalness) ──
-    if not use_gpt_fallback:
-        return False
-
-    # Only run for messages with 5+ words — short phrases rarely have catchable errors
-    # and mini-check has more false positives on short text
-    words = text.split()
-    if len(words) < 5:
-        return False
-
-    from bot.services.groq_client import ask_grammar_check
-    result = await ask_grammar_check(text)
-    if result is True:
-        logger.info(f"[L3-GPT] mini-check flagged: '{text[:60]}'")
-        return True
-    if result is None:
-        logger.warning("[L3-GPT] mini-check failed → assume no error")
 
     return False
