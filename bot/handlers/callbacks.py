@@ -709,7 +709,7 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
             .where(Error.user_id == user_id, Error.created_at >= week_ago)
             .group_by(Error.original_text, Error.corrected_text)
             .order_by(func.count(Error.id).desc())
-            .limit(3)
+            .limit(50)
         )).all()
 
     if total_msgs < 3:
@@ -747,11 +747,11 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     header.append(f"🔥 {streak} дн.")
     p1.append("  ".join(header))
     p1.append(sep)
-    p1.append(f"💬 Сообщений: {total_msgs}  (эта неделя: {this_msgs})")
+    p1.append(f"💬 Сообщений всего: {total_msgs}")
     p1.append(f"❌ Ошибок всего: {total_err}  ({all_rate}%)")
 
     if this_msgs:
-        line = f"   Эта неделя: {this_errs}/{this_msgs}  ({this_rate}%)"
+        line = f"   Эта неделя: {this_rate}%"
         if trend_str:
             line += f"  {trend_str}"
         p1.append(line)
@@ -762,8 +762,7 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     if error_cats:
         p1.append("Где чаще всего ошибаешься:")
         for i, (cat, cnt) in enumerate(error_cats[:5], 1):
-            bar = "█" * min(cnt, 10)
-            p1.append(f"  {i}. {get_category_name(cat)} {bar} {cnt}×")
+            p1.append(f"  {i}. {get_category_name(cat)} — {cnt}×")
 
     pages.append("\n".join(p1))
 
@@ -777,35 +776,48 @@ async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
     }
     weekly_gpt = await ask_groq(WEEKLY_INSIGHTS_SYSTEM, json.dumps(weekly_payload))
 
-    p2 = ["📅 Эта неделя\n"]
+    p2_header = ["📅 Эта неделя\n"]
     if this_msgs == 0:
-        p2.append("Нет данных за эту неделю.")
+        p2_header.append("Нет данных за эту неделю.")
     else:
-        p2.append(f"Сообщений: {this_msgs}  |  Ошибок: {this_errs} ({this_rate}%)")
+        p2_header.append(f"Сообщений: {this_msgs}  |  Ошибок: {this_errs} ({this_rate}%)")
         if trend_str:
-            p2.append(trend_str)
-        p2.append(f"XP заработано: +{xp_week}")
-        p2.append("")
+            p2_header.append(trend_str)
+        p2_header.append(f"XP заработано: +{xp_week}")
 
-        if top_errors_week:
-            p2.append("Ошибки недели:")
-            for orig, corr, expl, cnt in top_errors_week:
+    pages.append("\n".join(p2_header))
+
+    # ── Error pages (8 per page) ──
+    ERRORS_PER_PAGE = 8
+    if top_errors_week:
+        error_chunks = [top_errors_week[i:i+ERRORS_PER_PAGE] for i in range(0, len(top_errors_week), ERRORS_PER_PAGE)]
+        total_err_pages = len(error_chunks)
+        for ci, chunk in enumerate(error_chunks):
+            ep = []
+            if total_err_pages > 1:
+                ep.append(f"Ошибки недели ({ci*ERRORS_PER_PAGE+1}–{ci*ERRORS_PER_PAGE+len(chunk)} из {len(top_errors_week)}):\n")
+            else:
+                ep.append("Ошибки недели:\n")
+            for orig, corr, expl, cnt in chunk:
                 times = f" (×{cnt})" if cnt > 1 else ""
-                p2.append(f"\n❌ {orig}{times}")
-                p2.append(f"✅ {corr}")
+                ep.append(f"❌ {orig}{times}")
+                ep.append(f"✅ {corr}")
                 if expl:
-                    p2.append(f"💡 {expl}")
-            p2.append("")
+                    ep.append(f"💡 {expl}")
+                ep.append("")
+            pages.append("\n".join(ep))
 
-        if weekly_gpt:
-            focus = weekly_gpt.get("focus_rule")
-            motivation = weekly_gpt.get("motivation")
+    # ── GPT rule page ──
+    if weekly_gpt:
+        focus = weekly_gpt.get("focus_rule")
+        motivation = weekly_gpt.get("motivation")
+        if focus or motivation:
+            gpt_p = []
             if focus:
-                p2.append(f"🎯 Правило недели:\n{focus}")
+                gpt_p.append(f"🎯 Правило недели:\n{focus}")
             if motivation:
-                p2.append(f"\n{motivation}")
-
-    pages.append("\n".join(p2))
+                gpt_p.append(f"\n{motivation}")
+            pages.append("\n".join(gpt_p))
 
     # ── Page 3: GPT Analysis ──
     analysis_input = (
