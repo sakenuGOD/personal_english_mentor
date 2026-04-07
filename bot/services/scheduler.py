@@ -241,7 +241,7 @@ async def _check_daily_checkup(bot, now: datetime):
                     await session.commit()
                 continue
 
-            # ── Smart sampling: 15 msgs from each of 4 time windows ──
+            # ── Smart sampling: 15 msgs from each real-time window ──
             from bot.db.models import Error as ErrorModel
             from datetime import timedelta
             import random
@@ -249,22 +249,31 @@ async def _check_daily_checkup(bot, now: datetime):
             all_msgs = messages
             total = len(all_msgs)
 
-            # Filter out very short messages (<5 words) — useless for naturalness
+            # Filter out very short messages (<5 words)
             meaningful = [m for m in all_msgs if len(m.text.split()) >= 5]
             if len(meaningful) < len(all_msgs) * 0.3:
-                meaningful = all_msgs  # fallback if most are short
+                meaningful = all_msgs  # fallback
 
-            # Split day into 4 quarters, sample 15 from each
+            # Split by real hour: morning 6-12, afternoon 12-18, evening 18-23, night 23-6
+            def _time_window(m):
+                h = m.created_at.hour
+                if 6 <= h < 12: return 0
+                if 12 <= h < 18: return 1
+                if 18 <= h < 23: return 2
+                return 3  # night 23-6
+
+            windows = {0: [], 1: [], 2: [], 3: []}
+            for m in meaningful:
+                windows[_time_window(m)].append(m)
+
             sample = []
             if total <= 60:
                 sample = meaningful
             else:
-                quarter = len(meaningful) // 4
-                for i in range(4):
-                    chunk = meaningful[i * quarter: (i + 1) * quarter]
-                    picked = random.sample(chunk, min(15, len(chunk))) if len(chunk) > 15 else chunk
-                    sample.extend(picked)
-                # Sort back by time
+                for w in windows.values():
+                    if w:
+                        picked = random.sample(w, min(15, len(w))) if len(w) > 15 else w
+                        sample.extend(picked)
                 sample.sort(key=lambda m: m.created_at)
 
             # ── All today's errors from DB (compact, covers everything LT caught) ──
