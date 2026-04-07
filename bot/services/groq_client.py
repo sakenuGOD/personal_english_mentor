@@ -50,6 +50,7 @@ def get_usage_stats() -> dict:
         "today": _token_log.get(today, {"in": 0, "out": 0, "calls": 0}),
         "yesterday": _token_log.get(yesterday, {"in": 0, "out": 0, "calls": 0}),
         "total_all": total_all,
+        "days_tracked": max(len(_token_log), 1),
     }
 
 

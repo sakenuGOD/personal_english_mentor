@@ -598,53 +598,90 @@ async def cb_settings_usage(callback: CallbackQuery, state: FSMContext):
 
 async def _show_usage(target, user):
     from bot.services.groq_client import get_usage_stats
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     stats = get_usage_stats()
 
-    # gpt-4o-mini: $0.15/1M input, $0.60/1M output
+    # gpt-4o-mini pricing
+    IN_PRICE = 0.00000015   # $0.15 per 1M input tokens
+    OUT_PRICE = 0.00000060  # $0.60 per 1M output tokens
+
     def calc_cost(s: dict) -> float:
-        return s["in"] * 0.00000015 + s["out"] * 0.00000060
+        return s["in"] * IN_PRICE + s["out"] * OUT_PRICE
 
     t = stats["today"]
     y = stats["yesterday"]
     total_all = stats["total_all"]
+    days_tracked = stats["days_tracked"]
 
     cost_today = calc_cost(t)
-    cost_yesterday = calc_cost(y)
     cost_total = calc_cost(total_all)
+
+    total_tokens = total_all["in"] + total_all["out"]
 
     lines = ["💰 Расходы и баланс", ""]
 
-    # Starting balance + remaining
     try:
         initial = float(user.api_balance_initial)
         remaining = max(0.0, initial - cost_total)
-        set_at = user.api_balance_set_at.strftime("%d.%m %H:%M") if user.api_balance_set_at else "?"
+        set_at = user.api_balance_set_at.strftime("%d.%m") if user.api_balance_set_at else "?"
 
-        # Avg cost per call (use total_all if available, else fallback)
-        avg_cost = calc_cost(total_all) / total_all["calls"] if total_all["calls"] > 0 else 0.0003
-        est_requests = int(remaining / avg_cost) if avg_cost > 0 else 0
+        # Daily burn rate
+        if days_tracked > 0 and cost_total > 0:
+            avg_daily_cost = cost_total / days_tracked
+            avg_daily_tokens = total_tokens / days_tracked
+            est_days = remaining / avg_daily_cost if avg_daily_cost > 0 else 0
+            est_until = datetime.now() + timedelta(days=est_days)
+        else:
+            avg_daily_cost = 0
+            avg_daily_tokens = 0
+            est_days = 0
+            est_until = None
 
         lines += [
-            f"🏦 Начальный баланс: ${initial:.2f} (с {set_at})",
-            f"💸 Потрачено всего: ~${cost_total:.5f}",
-            f"✅ Остаток: ~${remaining:.4f}",
-            f"🔢 Это примерно {est_requests:,} запросов",
+            f"🏦 Баланс: ${initial:.2f} → ${remaining:.4f}",
+            f"💸 Потрачено: ~${cost_total:.5f}",
             "",
         ]
+
+        if est_days > 0:
+            until_str = est_until.strftime("%d.%m.%Y") if est_until else "?"
+            lines += [
+                f"📅 Хватит примерно на {int(est_days)} дней",
+                f"   (до ~{until_str} при текущем темпе)",
+                "",
+            ]
+
+        if avg_daily_tokens > 0:
+            lines += [
+                f"📊 Средний расход в день:",
+                f"   {int(avg_daily_tokens):,} токенов / ~${avg_daily_cost:.5f}",
+                "",
+            ]
     except Exception:
         pass
 
+    # Today breakdown
     lines += [
         "Сегодня:",
-        f"  📥 {t['in']:,} / 📤 {t['out']:,} токенов",
-        f"  🔢 {t['calls']} запросов  💵 ~${cost_today:.5f}",
-        "",
-        "Вчера:",
-        f"  📥 {y['in']:,} / 📤 {y['out']:,} токенов",
-        f"  🔢 {y['calls']} запросов  💵 ~${cost_yesterday:.5f}",
+        f"  📥 {t['in']:,} вход + 📤 {t['out']:,} выход = {t['in']+t['out']:,} токенов",
+        f"  🔢 {t['calls']} запросов  💵 ~${calc_cost(t):.5f}",
     ]
+
+    if y["calls"] > 0:
+        lines += [
+            "",
+            "Вчера:",
+            f"  {y['in']+y['out']:,} токенов / {y['calls']} запросов  💵 ~${calc_cost(y):.5f}",
+        ]
+
+    if total_all["calls"] > 0 and total_all["calls"] != t["calls"]:
+        avg_per_call = total_tokens / total_all["calls"]
+        lines += [
+            "",
+            f"Всего с запуска: {total_tokens:,} токенов / {total_all['calls']} запросов",
+            f"В среднем {int(avg_per_call):,} токенов на запрос",
+        ]
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
