@@ -54,13 +54,14 @@ async def _check_phrase_of_day(bot, now: datetime):
                 continue
 
             # Generate and send phrase
-            from bot.services.phrase_of_day import generate_phrase_of_day, format_phrase_message
+            from bot.services.phrase_of_day import generate_phrase_of_day, format_phrase_message, cache_phrase, phrase_keyboard
             phrase = await generate_phrase_of_day(user.topic_pack or "general")
             if not phrase:
                 continue
 
+            cache_phrase(user.id, phrase)
             text = format_phrase_message(phrase)
-            await bot.send_message(chat_id=user.id, text=text)
+            await bot.send_message(chat_id=user.id, text=text, reply_markup=phrase_keyboard())
 
             # Mark as sent
             async with async_session() as session:

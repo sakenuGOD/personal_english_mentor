@@ -7,6 +7,9 @@ from bot.utils.prompts import PHRASE_OF_DAY_SYSTEM
 
 logger = logging.getLogger(__name__)
 
+# Cache last phrase per user for vocab save: {user_id: {"phrase": ..., "translation": ...}}
+_phrase_cache: dict[int, dict] = {}
+
 
 async def generate_phrase_of_day(topic: str = "general") -> dict | None:
     topic_hint = f"Topic context: {topic}." if topic != "general" else ""
@@ -15,6 +18,21 @@ async def generate_phrase_of_day(topic: str = "general") -> dict | None:
         f"{topic_hint} Generate a fresh, practical idiom or colloquial phrase.",
     )
     return result
+
+
+def cache_phrase(user_id: int, phrase: dict):
+    _phrase_cache[user_id] = phrase
+
+
+def get_cached_phrase(user_id: int) -> dict | None:
+    return _phrase_cache.get(user_id)
+
+
+def phrase_keyboard():
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ В словарь", callback_data="vocab:phrase_save")],
+    ])
 
 
 def format_phrase_message(phrase: dict) -> str:

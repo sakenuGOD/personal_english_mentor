@@ -760,6 +760,32 @@ async def cb_vocab_remind_later(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
 
 
+# ─── Vocab save from phrase of day ───
+@router.callback_query(F.data == "vocab:phrase_save")
+async def cb_phrase_vocab_save(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    from bot.services.phrase_of_day import get_cached_phrase
+    phrase = get_cached_phrase(user_id)
+
+    if not phrase:
+        await callback.answer("Фраза недоступна, перезапусти бот")
+        return
+
+    word = phrase.get("phrase", "")
+    translation = phrase.get("translation", "")
+
+    async with async_session() as session:
+        result = await add_word(session, user_id, word, translation, "")
+
+    if result:
+        async with async_session() as session:
+            await add_xp(session, user_id, XP_NEW_WORD, "word_added")
+        await callback.answer(f"✅ '{word}' добавлено! +{XP_NEW_WORD} XP")
+        await callback.message.edit_reply_markup(reply_markup=None)
+    else:
+        await callback.answer(f"'{word}' уже в словаре")
+
+
 # ─── Vocab save from explain breakdown ───
 @router.callback_query(F.data.startswith("vocab:explain_save:"))
 async def cb_explain_vocab_save(callback: CallbackQuery):
