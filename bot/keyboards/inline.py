@@ -93,6 +93,15 @@ def workout_menu_keyboard(challenge_done: bool = False) -> InlineKeyboardMarkup:
     ])
 
 
+def workout_difficulty_keyboard(prefix: str = "workout", back: str = "progress:workout_menu") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🟢 Лёгкий (A1-A2)", callback_data=f"{prefix}:diff:easy")],
+        [InlineKeyboardButton(text="🟡 Средний (B1-B2)", callback_data=f"{prefix}:diff:medium")],
+        [InlineKeyboardButton(text="🔴 Сложный (B2-C1+)", callback_data=f"{prefix}:diff:hard")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data=back)],
+    ])
+
+
 def workout_count_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [

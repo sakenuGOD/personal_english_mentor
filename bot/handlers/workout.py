@@ -189,7 +189,7 @@ async def _get_error_summary(user_id: int) -> str | None:
 
 
 async def start_workout(callback_or_message, state: FSMContext, user_id: int):
-    """Show workout config — how many questions, with/without hints."""
+    """Show workout config — difficulty first."""
     target = callback_or_message.message if isinstance(callback_or_message, CallbackQuery) else callback_or_message
 
     error_summary = await _get_error_summary(user_id)
@@ -198,17 +198,19 @@ async def start_workout(callback_or_message, state: FSMContext, user_id: int):
         return
 
     await state.set_state(WorkoutStates.config_count)
-    await state.update_data(workout_user_id=user_id)
+    await state.update_data(workout_user_id=user_id, workout_type="errors")
 
-    from bot.keyboards.inline import workout_count_keyboard
-    await target.answer(
-        "🎯 Тест по твоим ошибкам\n\n📊 Сколько вопросов?",
-        reply_markup=workout_count_keyboard(),
-    )
+    from bot.keyboards.inline import workout_difficulty_keyboard
+    await target.answer("🎯 Тест по твоим ошибкам\n\nВыбери сложность:", reply_markup=workout_difficulty_keyboard())
 
 
 async def _generate_and_start_workout(target, state: FSMContext, user_id: int, count: int, hints: bool):
     """Actually generate and start the workout after config."""
+    data = await state.get_data()
+    difficulty = data.get("workout_difficulty", "medium")
+    diff_map = {"easy": "A1-A2 (simple present/past, basic vocabulary)", "medium": "B1-B2 (mixed tenses, conditionals, passive)", "hard": "B2-C1+ (perfect tenses, complex structures, nuanced vocabulary)"}
+    diff_hint = diff_map.get(difficulty, diff_map["medium"])
+
     error_summary = await _get_error_summary(user_id)
     if not error_summary:
         await target.answer("✅ Нет ошибок для проработки.")
@@ -219,7 +221,7 @@ async def _generate_and_start_workout(target, state: FSMContext, user_id: int, c
     hint_instruction = "Include hints for each task." if hints else "Do NOT include hints."
     result = await ask_groq(
         WORKOUT_SYSTEM,
-        f"Student's errors:\n{error_summary}\n\nGenerate exactly {count} tasks. {hint_instruction}",
+        f"Student's errors:\n{error_summary}\n\nGenerate exactly {count} tasks. {hint_instruction}\nDifficulty level: {diff_hint}",
     )
 
     if not result or not result.get("tasks"):
@@ -373,20 +375,21 @@ async def start_general_workout(callback_or_message, state: FSMContext, user_id:
     await state.set_state(WorkoutStates.config_count)
     await state.update_data(workout_user_id=user_id, workout_type="general")
 
-    from bot.keyboards.inline import workout_count_keyboard
-    await target.answer(
-        "🎯 Общая тренировка\n\n📊 Сколько вопросов?",
-        reply_markup=workout_count_keyboard(),
-    )
+    from bot.keyboards.inline import workout_difficulty_keyboard
+    await target.answer("🎯 Общая тренировка\n\nВыбери сложность:", reply_markup=workout_difficulty_keyboard())
 
 
 async def _generate_and_start_general(target, state: FSMContext, count: int, hints: bool):
     """Generate general workout."""
     await target.answer("⏳ Генерирую упражнения...")
+    data = await state.get_data()
+    difficulty = data.get("workout_difficulty", "medium")
+    diff_map = {"easy": "A1-A2 (simple present/past, basic vocabulary)", "medium": "B1-B2 (mixed tenses, conditionals, passive)", "hard": "B2-C1+ (perfect tenses, complex structures, nuanced vocabulary)"}
+    diff_hint = diff_map.get(difficulty, diff_map["medium"])
     hint_instruction = "Include hints for each task." if hints else "Do NOT include hints."
     result = await ask_groq(
         GENERAL_WORKOUT_SYSTEM,
-        f"Generate exactly {count} tasks covering different grammar topics. {hint_instruction}",
+        f"Generate exactly {count} tasks covering different grammar topics. {hint_instruction}\nDifficulty level: {diff_hint}",
     )
 
     if not result or not result.get("tasks"):

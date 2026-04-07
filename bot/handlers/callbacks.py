@@ -194,6 +194,19 @@ async def cb_workout_test(callback: CallbackQuery, state: FSMContext):
     await start_workout(callback, state, callback.from_user.id)
 
 
+@router.callback_query(F.data.startswith("workout:diff:"))
+async def cb_workout_difficulty(callback: CallbackQuery, state: FSMContext):
+    diff = callback.data.split(":")[-1]  # easy / medium / hard
+    diff_labels = {"easy": "🟢 Лёгкий (A1-A2)", "medium": "🟡 Средний (B1-B2)", "hard": "🔴 Сложный (B2-C1+)"}
+    await state.update_data(workout_difficulty=diff)
+    await callback.answer()
+    from bot.keyboards.inline import workout_count_keyboard
+    await callback.message.edit_text(
+        f"Сложность: {diff_labels.get(diff, diff)}\n\nСколько вопросов?",
+        reply_markup=workout_count_keyboard(),
+    )
+
+
 @router.callback_query(F.data.startswith("workout:config:count:"))
 async def cb_workout_config_count(callback: CallbackQuery, state: FSMContext):
     count = int(callback.data.split(":")[-1])
@@ -265,8 +278,23 @@ async def cb_topic_test_start(callback: CallbackQuery, state: FSMContext):
 async def cb_topic_test_got_topic(message: Message, state: FSMContext):
     topic = message.text.strip()
     await state.update_data(topic=topic)
+    from bot.keyboards.inline import workout_difficulty_keyboard
+    await message.answer(
+        f"Тема: {topic}\n\nВыбери сложность:",
+        reply_markup=workout_difficulty_keyboard(prefix="topictest", back="workout:topic_test"),
+    )
+
+
+@router.callback_query(F.data.startswith("topictest:diff:"))
+async def cb_topic_test_difficulty(callback: CallbackQuery, state: FSMContext):
+    diff = callback.data.split(":")[-1]
+    diff_labels = {"easy": "🟢 Лёгкий (A1-A2)", "medium": "🟡 Средний (B1-B2)", "hard": "🔴 Сложный (B2-C1+)"}
+    await state.update_data(workout_difficulty=diff)
     await state.set_state(TopicTestStates.waiting_count)
+    await callback.answer()
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    data = await state.get_data()
+    topic = data.get("topic", "")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="5", callback_data="topictest:count:5"),
@@ -275,7 +303,10 @@ async def cb_topic_test_got_topic(message: Message, state: FSMContext):
         ],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="menu")],
     ])
-    await message.answer(f"Тема: {topic}\n\nСколько вопросов?", reply_markup=kb)
+    await callback.message.edit_text(
+        f"Тема: {topic} | {diff_labels.get(diff, diff)}\n\nСколько вопросов?",
+        reply_markup=kb,
+    )
 
 
 @router.callback_query(F.data.startswith("topictest:count:"))
@@ -286,9 +317,13 @@ async def cb_topic_test_count(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_text(f"Тема: {topic} | Вопросов: {count}\n\n⏳ Генерирую тест...")
 
+    difficulty = data.get("workout_difficulty", "medium")
+    diff_map = {"easy": "A1-A2 (simple present/past, basic vocabulary)", "medium": "B1-B2 (mixed tenses, conditionals, passive)", "hard": "B2-C1+ (perfect tenses, complex structures, nuanced vocabulary)"}
+    diff_hint = diff_map.get(difficulty, diff_map["medium"])
+
     from bot.services.groq_client import ask_groq
     from bot.utils.prompts import TOPIC_TEST_SYSTEM
-    result = await ask_groq(TOPIC_TEST_SYSTEM, f"Topic: {topic}. Number of questions: {count}")
+    result = await ask_groq(TOPIC_TEST_SYSTEM, f"Topic: {topic}. Number of questions: {count}. Difficulty level: {diff_hint}")
 
     if not result or not result.get("questions"):
         await callback.message.answer("⚠️ Не удалось сгенерировать тест. Попробуй ещё раз.")

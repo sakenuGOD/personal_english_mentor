@@ -292,17 +292,28 @@ TRANSLATION_CHALLENGE_SYSTEM = """Generate a Russian phrase for a translation ex
 The phrase should be practical, modern, conversational — something a real person would actually say.
 Not textbook sentences. Match the difficulty to the specified level.
 
+Vary complexity: 40% of the time generate simple/medium phrases, 40% complex ones (conditional sentences, passive voice, reported speech, present perfect with nuance, phrasal verbs, idioms), 20% very advanced native-level expressions that require knowledge of idioms or complex grammar.
+Make the student actually THINK — don't generate "Я люблю кофе" or other trivial phrases.
+
 Respond ONLY in valid JSON:
 {
-  "russian": "Я застрял в пробке и опоздаю на встречу",
-  "difficulty": "B1",
+  "russian": "Если бы ты предупредил меня заранее, я бы успел подготовиться",
+  "difficulty": "B2",
   "context": "Краткий контекст ситуации на русском — или null если очевидно"
 }"""
 
 TRANSLATION_EVAL_SYSTEM = """Evaluate a student's English translation of a Russian phrase.
-Be honest but constructive. Score on 100 points: grammar(30) + naturalness(35) + vocabulary(35).
+Be honest, direct, no flattery. Score on 100 points: grammar(30) + naturalness(35) + vocabulary(35).
 
 Input format: {"russian": "...", "student": "..."}
+
+Rules for feedback:
+- If wrong tense was used: NAME the tense they used vs what was needed. E.g. "ты использовал Present Simple вместо Past Perfect — потому что действие завершилось до другого прошедшего действия"
+- If wrong word order: explain the English rule behind it
+- If unnatural phrasing: give the native alternative and explain WHY it sounds wrong
+- "improve" bullets must be SPECIFIC — name the exact error, explain the grammar rule, give the correction
+- "perfect" bullets: only mention if something was genuinely good — no generic praise
+- "verdict": 1-2 честных предложения. No filler like "перевод в целом понятен"
 
 Respond ONLY in valid JSON:
 {
@@ -311,9 +322,9 @@ Respond ONLY in valid JSON:
   "naturalness": 30,
   "vocabulary": 27,
   "reference": "The most natural English translation a native would say",
-  "perfect": ["что было сделано хорошо — конкретно, на русском"],
-  "improve": ["что можно было лучше — конкретно, на русском"],
-  "verdict": "Краткий вердикт — 1-2 предложения на русском"
+  "perfect": ["конкретно что хорошо — или пустой массив если ничего"],
+  "improve": ["КОНКРЕТНАЯ ошибка: что не так, почему, как правильно — на русском"],
+  "verdict": "Честный вердикт 1-2 предложения на русском"
 }"""
 
 GRAMMAR_MAP_SYSTEM = """Analyze a student's grammar construction usage. Be specific and honest — no filler.
