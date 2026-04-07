@@ -648,28 +648,26 @@ async def cb_curriculum_practice(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data == "progress:stats")
-async def cb_progress_stats(callback: CallbackQuery):
-    """Combined: weekly digest + level analysis."""
+async def cb_progress_stats(callback: CallbackQuery, state: FSMContext):
+    """Combined paginated stats: overview → weekly → analysis."""
     await callback.answer()
     await callback.message.answer("📊 Собираю статистику...")
 
     from sqlalchemy import func
+    from datetime import datetime, timedelta
     from bot.services.groq_client import ask_groq
-    from bot.utils.prompts import ANALYSIS_SYSTEM
-    from bot.services.stats import get_category_name
-    from bot.services.digest import generate_weekly_insights
+    from bot.utils.prompts import ANALYSIS_SYSTEM, WEEKLY_INSIGHTS_SYSTEM
+    from bot.services.stats import get_category_name, get_user_stats
+    from bot.db.models import GrammarUsage, Message as Msg, XpLog
+    import json
 
     user_id = callback.from_user.id
 
-    # Weekly insights first (no extra GPT call — already has its own)
     async with async_session() as session:
-        weekly = await generate_weekly_insights(session, user_id)
+        stats = await get_user_stats(session, user_id)
+        user_result = await session.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
 
-    if weekly:
-        await callback.message.answer(weekly)
-
-    # Level analysis
-    async with async_session() as session:
         error_cats = (await session.execute(
             select(Error.category, func.count(Error.id))
             .where(Error.user_id == user_id)
@@ -677,11 +675,10 @@ async def cb_progress_stats(callback: CallbackQuery):
             .order_by(func.count(Error.id).desc())
         )).all()
 
-        total_err = (await session.execute(
-            select(func.count(Error.id)).where(Error.user_id == user_id)
-        )).scalar() or 0
+        total_err = stats["total_errors"]
+        total_msgs = stats["total_messages"]
+        vocab_count = stats["vocab_count"]
 
-        from bot.db.models import GrammarUsage, Message
         constr = (await session.execute(
             select(GrammarUsage.construction, GrammarUsage.times_used)
             .where(GrammarUsage.user_id == user_id)
@@ -689,71 +686,173 @@ async def cb_progress_stats(callback: CallbackQuery):
             .limit(10)
         )).all()
 
-        total_msgs = (await session.execute(
-            select(func.count(Message.id)).where(Message.user_id == user_id)
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        prev_week_ago = datetime.utcnow() - timedelta(days=14)
+
+        this_msgs = (await session.execute(
+            select(func.count(Msg.id)).where(Msg.user_id == user_id, Msg.created_at >= week_ago)
+        )).scalar() or 0
+        this_errs = (await session.execute(
+            select(func.count(Msg.id)).where(Msg.user_id == user_id, Msg.has_errors == True, Msg.created_at >= week_ago)
+        )).scalar() or 0
+        prev_msgs = (await session.execute(
+            select(func.count(Msg.id)).where(Msg.user_id == user_id, Msg.created_at >= prev_week_ago, Msg.created_at < week_ago)
+        )).scalar() or 0
+        prev_errs = (await session.execute(
+            select(func.count(Msg.id)).where(Msg.user_id == user_id, Msg.has_errors == True, Msg.created_at >= prev_week_ago, Msg.created_at < week_ago)
+        )).scalar() or 0
+        xp_week = (await session.execute(
+            select(func.sum(XpLog.amount)).where(XpLog.user_id == user_id, XpLog.created_at >= week_ago)
         )).scalar() or 0
 
-        vocab_count = (await session.execute(
-            select(func.count(Vocabulary.id)).where(Vocabulary.user_id == user_id)
-        )).scalar() or 0
+        top_errors_week = (await session.execute(
+            select(Error.original_text, Error.corrected_text, Error.short_explanation, func.count(Error.id).label("cnt"))
+            .where(Error.user_id == user_id, Error.created_at >= week_ago)
+            .group_by(Error.original_text, Error.corrected_text)
+            .order_by(func.count(Error.id).desc())
+            .limit(3)
+        )).all()
 
-    if total_msgs < 5:
+    if total_msgs < 3:
         await callback.message.answer(
-            "Пока мало данных.\nПообщайся больше в чатах — соберём статистику.",
+            "Пока мало данных.\nПообщайся в бизнес-чатах — соберём статистику.",
             reply_markup=progress_keyboard()
         )
         return
 
+    pages = []
+
+    # ── Page 1: Overview ──
+    this_rate = round(this_errs / this_msgs * 100, 1) if this_msgs else 0
+    prev_rate = round(prev_errs / prev_msgs * 100, 1) if prev_msgs else None
+    all_rate = round(total_err / total_msgs * 100, 1) if total_msgs else 0
+
+    trend = ""
+    if prev_rate is not None:
+        delta = this_rate - prev_rate
+        trend = f"  {'↓' if delta < -1 else '↑' if delta > 1 else '→'} {'+' if delta > 0 else ''}{round(delta, 1)}% vs прошлая неделя"
+
+    lvl = user.level if user else "newbie"
+    xp = user.xp if user else 0
+    streak = user.streak if user else 0
+    eng_level = user.english_level if user else None
+
+    p1 = ["📊 Статистика\n"]
+    p1.append(f"{'🎓 ' + eng_level if eng_level else ''}")
+    p1.append(f"⚡ {xp} XP   🔥 {streak} дн.   📈 {lvl.title()}\n")
+    p1.append(f"💬 Сообщений всего: {total_msgs}  (неделя: {this_msgs})")
+    p1.append(f"❌ Ошибок за всё время: {total_err} ({all_rate}%)")
+    p1.append(f"   За неделю: {this_errs}/{this_msgs} ({this_rate}%){trend}")
+    p1.append(f"📚 Слов в словаре: {vocab_count}")
+    if error_cats:
+        p1.append("\nТоп ошибок:")
+        for cat, cnt in error_cats[:4]:
+            p1.append(f"  • {get_category_name(cat)} — {cnt}")
+    pages.append("\n".join(l for l in p1 if l))
+
+    # ── Page 2: This week detail ──
+    p2 = ["📅 Эта неделя\n"]
+    if this_msgs == 0:
+        p2.append("Нет сообщений за неделю.")
+    else:
+        p2.append(f"Написано: {this_msgs} сообщений")
+        p2.append(f"Ошибок: {this_errs} ({this_rate}%)")
+        if prev_rate is not None:
+            p2.append(f"Прошлая неделя: {prev_rate}%  {trend.strip()}")
+        p2.append(f"XP за неделю: +{xp_week}")
+        if top_errors_week:
+            p2.append("\nЧастые ошибки недели:")
+            for orig, corr, expl, cnt in top_errors_week:
+                p2.append(f"\n❌ {orig}")
+                p2.append(f"✅ {corr}")
+                if expl:
+                    p2.append(f"💡 {expl}")
+    pages.append("\n".join(p2))
+
+    # ── Page 3: GPT Analysis ──
     analysis_input = (
         f"Error stats (total: {total_err}):\n"
         + "\n".join(f"- {get_category_name(c)}: {n}" for c, n in error_cats)
-        + f"\n\nGrammar constructions:\n"
+        + f"\n\nGrammar constructions used:\n"
         + "\n".join(f"- {c}: {n} times" for c, n in constr)
-        + f"\n\nTotal messages: {total_msgs}\nVocab: {vocab_count}"
+        + f"\n\nTotal messages: {total_msgs}, vocab: {vocab_count}, streak: {streak} days"
     )
+    gpt = await ask_groq(ANALYSIS_SYSTEM, analysis_input)
 
-    result = await ask_groq(ANALYSIS_SYSTEM, analysis_input)
-    if not result:
-        await callback.message.answer("⚠️ Не удалось выполнить анализ.", reply_markup=progress_keyboard())
+    if gpt:
+        p3 = [f"🔍 Уровень по данным: {gpt.get('level', '?')}"]
+        desc = gpt.get("level_description", "")
+        if desc:
+            p3.append(f"   {desc}")
+        p3.append("")
+        summary = gpt.get("summary", "")
+        if summary:
+            p3.append(summary)
+            p3.append("")
+        strengths = gpt.get("strengths", [])
+        if strengths:
+            p3.append("💪 Сильные стороны:")
+            for s in strengths:
+                p3.append(f"  • {s}")
+            p3.append("")
+        weaknesses = gpt.get("weaknesses", [])
+        if weaknesses:
+            p3.append("📌 Слабые места:")
+            for w in weaknesses:
+                p3.append(f"  • {w}")
+            p3.append("")
+        plan = gpt.get("action_plan", [])
+        if plan:
+            p3.append("🎯 Что делать:")
+            for i, a in enumerate(plan, 1):
+                p3.append(f"  {i}. {a}")
+            p3.append("")
+        tips = gpt.get("next_level_tips", "")
+        if tips:
+            p3.append(f"🚀 До следующего уровня:\n   {tips}")
+        pages.append("\n".join(p3))
+    else:
+        pages.append("⚠️ Не удалось выполнить анализ.")
+
+    await state.update_data(stats_pages=pages)
+
+    def stats_kb(page, total):
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="◀️", callback_data=f"stats:page:{page-1}"))
+        nav.append(InlineKeyboardButton(text=f"{page+1}/{total}", callback_data="noop"))
+        if page < total - 1:
+            nav.append(InlineKeyboardButton(text="▶️", callback_data=f"stats:page:{page+1}"))
+        return InlineKeyboardMarkup(inline_keyboard=[nav, [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")]])
+
+    await callback.message.answer(pages[0], reply_markup=stats_kb(0, len(pages)))
+
+
+@router.callback_query(F.data.startswith("stats:page:"))
+async def cb_stats_page(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.split(":")[-1])
+    await callback.answer()
+    fsm = await state.get_data()
+    pages = fsm.get("stats_pages", [])
+    if not pages:
+        await callback.message.answer("Данные устарели, открой статистику заново.")
         return
+    total = len(pages)
+    page = max(0, min(page, total - 1))
 
-    lines = [f"🔍 Уровень: {result.get('level', '?')}"]
-    desc = result.get("level_description", "")
-    if desc:
-        lines.append(f"   {desc}")
-    lines.append("")
-
-    strengths = result.get("strengths", [])
-    if strengths:
-        lines.append("💪 Сильные стороны:")
-        for s in strengths:
-            lines.append(f"  • {s}")
-        lines.append("")
-
-    weaknesses = result.get("weaknesses", [])
-    if weaknesses:
-        lines.append("📝 Слабые места:")
-        for w in weaknesses:
-            lines.append(f"  • {w}")
-        lines.append("")
-
-    problem = result.get("main_problem", "")
-    if problem:
-        lines.append(f"⚠️ Главная проблема: {problem}")
-        lines.append("")
-
-    recs = result.get("recommendations", [])
-    if recs:
-        lines.append("📌 Рекомендации:")
-        for r in recs:
-            lines.append(f"  • {r}")
-        lines.append("")
-
-    next_tips = result.get("next_level_tips", "")
-    if next_tips:
-        lines.append(f"🚀 До следующего уровня: {next_tips}")
-
-    await callback.message.answer("\n".join(lines), reply_markup=progress_keyboard())
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"stats:page:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{total}", callback_data="noop"))
+    if page < total - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"stats:page:{page+1}"))
+    kb = InlineKeyboardMarkup(inline_keyboard=[nav, [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")]])
+    try:
+        await callback.message.edit_text(pages[page], reply_markup=kb)
+    except Exception:
+        await callback.message.answer(pages[page], reply_markup=kb)
 
 
 @router.callback_query(F.data == "progress:analysis")
@@ -1301,7 +1400,12 @@ async def cb_mistakes(callback: CallbackQuery, state: FSMContext):
                 lines.append(f"❌ {orig}  →  ✅ {corr}  (×{cnt})")
                 lines.append(f"   {get_category_name(cat)}")
                 lines.append("")
-            await callback.message.edit_text("\n".join(lines), reply_markup=mistakes_keyboard())
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🎯 Потренироваться по этим ошибкам", callback_data="mistakes:practice_repeated")],
+                [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
+            ])
+            await callback.message.edit_text("\n".join(lines), reply_markup=kb)
             await callback.answer()
             return
 
@@ -1346,6 +1450,55 @@ async def cb_mistakes(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(text, reply_markup=mistakes_keyboard(page, total_pages))
     await callback.answer()
+
+
+@router.callback_query(F.data == "mistakes:practice_repeated")
+async def cb_mistakes_practice_repeated(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer("🎯 Генерирую тест по твоим повторяющимся ошибкам...")
+
+    from sqlalchemy import func
+    from bot.services.groq_client import ask_groq
+    from bot.utils.prompts import ADAPTIVE_TEST_SYSTEM
+
+    user_id = callback.from_user.id
+    async with async_session() as session:
+        reps = (await session.execute(
+            select(Error.original_text, Error.corrected_text, Error.rule_name)
+            .where(Error.user_id == user_id)
+            .group_by(Error.original_text, Error.corrected_text, Error.rule_name)
+            .having(func.count(Error.id) >= 2)
+            .order_by(func.count(Error.id).desc())
+            .limit(20)
+        )).all()
+
+    if not reps:
+        await callback.message.answer("Повторяющихся ошибок пока нет.")
+        return
+
+    errors_text = "\n".join(f'- "{orig}" → "{corr}"' + (f" ({rule})" if rule else "") for orig, corr, rule in reps)
+    result = await ask_groq(ADAPTIVE_TEST_SYSTEM, errors_text)
+
+    if not result or not result.get("questions"):
+        await callback.message.answer("⚠️ Не удалось создать тест.")
+        return
+
+    questions = result.get("questions", [])
+    summary = result.get("final_summary", "")
+    level = result.get("overall_level", "")
+    patterns = result.get("patterns_found", [])
+
+    intro = [f"🔁 Тест по повторяющимся ошибкам — {level}\n"]
+    if patterns:
+        for p in patterns:
+            intro.append(f"  • {p.get('pattern', '')} ({p.get('frequency', '')})")
+    intro.append(f"\n{len(questions)} вопросов")
+    await callback.message.answer("\n".join(intro))
+
+    await state.set_state(TopicTestStates.in_test)
+    await state.update_data(questions=questions, current_q=0, correct=0,
+                            topic_title=f"Повторяющиеся ошибки ({level})", final_summary=summary)
+    await _send_topic_question(callback.message, state)
 
 
 # ─── Grammar Map ───

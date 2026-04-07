@@ -503,18 +503,24 @@ Respond ONLY in valid JSON:
   "tips": ["совет 1 как улучшиться", "совет 2"]
 }"""
 
-ANALYSIS_SYSTEM = """Analyze the student's English level based on their error history and usage data.
+ANALYSIS_SYSTEM = """Analyze the student's English level based on their error history and grammar usage data.
 
-Give an honest assessment focused on WHAT TO IMPROVE, not abstract advice.
+Be specific and honest. Reference ACTUAL error categories and constructions from the data — don't give generic advice.
 
 Respond ONLY in valid JSON:
 {
   "level": "A1/A2/B1/B2/C1/C2",
-  "summary": "2-3 предложения: общая картина на русском",
-  "strengths": ["конкретная сильная сторона 1", "сторона 2"],
-  "weaknesses": ["конкретное слабое место 1 — с примером", "место 2"],
-  "main_problem": "главная проблема — что чаще всего мешает",
-  "action_plan": ["конкретное действие 1 (например: повтори правило Past Simple — после did всегда начальная форма)", "действие 2", "действие 3"]
+  "level_description": "одна строка: что означает этот уровень на практике",
+  "summary": "2-3 конкретных предложения об этом конкретном студенте — упомяни реальные категории ошибок",
+  "strengths": ["конкретная сильная сторона с примером из данных", "ещё одна"],
+  "weaknesses": ["конкретное слабое место — назови правило и покажи как это проявляется", "ещё одно"],
+  "main_problem": "одна самая важная проблема — конкретная конструкция или правило",
+  "action_plan": [
+    "конкретное действие 1 — не 'учи артикли' а 'запомни: the = уже знаем о чём, a = первый раз'",
+    "конкретное действие 2",
+    "конкретное действие 3"
+  ],
+  "next_level_tips": "что конкретно нужно освоить чтобы перейти на следующий уровень"
 }"""
 
 DAILY_CHECKUP_SYSTEM = """You are an English language coach doing an end-of-day review of a student's real messages.
