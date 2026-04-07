@@ -264,16 +264,21 @@ async def _check_daily_checkup(bot, now: datetime):
 
             used = gpt.get("constructions_used", [])
             if used:
-                all_lines.append(f"Конструкции: {', '.join(used)}")
+                all_lines.append(f"Использовал: {', '.join(used)}")
                 all_lines.append("")
 
-            if errors_found:
-                all_lines.append("❌ Ошибки:")
-                for e in errors_found:
-                    all_lines.append(f'\n«{e.get("user_wrote", "")}»')
-                    all_lines.append(f'→ {e.get("fix", "")}')
-                    all_lines.append(f'{e.get("error", "")}')
-                all_lines.append("")
+            top_patterns = gpt.get("top_patterns", [])
+            if top_patterns:
+                all_lines.append("📌 Главные паттерны ошибок:\n")
+                for p in top_patterns:
+                    freq = p.get("frequency", "")
+                    all_lines.append(f"🔴 {p.get('pattern_name', '')}  ({freq})")
+                    all_lines.append(p.get("description", ""))
+                    examples = p.get("examples", [])
+                    if examples:
+                        for ex in examples:
+                            all_lines.append(f"  • {ex}")
+                    all_lines.append("")
 
             missed = gpt.get("missed_opportunities", [])
             if missed:
@@ -282,13 +287,6 @@ async def _check_daily_checkup(bot, now: datetime):
                     all_lines.append(f'\n«{m.get("user_wrote", "")}»')
                     all_lines.append(f'→ {m.get("would_be_better", "")}')
                     all_lines.append(f'({m.get("construction", "")} — {m.get("why", "")})')
-                all_lines.append("")
-
-            patterns = gpt.get("patterns", [])
-            if patterns:
-                all_lines.append("📌 Паттерны:")
-                for pat in patterns:
-                    all_lines.append(f"  • {pat}")
                 all_lines.append("")
 
             strong = gpt.get("strong_points", [])
@@ -325,11 +323,11 @@ async def _check_daily_checkup(bot, now: datetime):
 
             if not hasattr(bot, "_checkup_pages"):
                 bot._checkup_pages = {}
-            if not hasattr(bot, "_checkup_errors"):
-                bot._checkup_errors = {}
+            if not hasattr(bot, "_checkup_patterns"):
+                bot._checkup_patterns = {}
             bot._checkup_pages[user.id] = final_pages
-            # Store errors from THIS checkup for practice button
-            bot._checkup_errors[user.id] = errors_found + gpt.get("missed_opportunities", [])
+            # Store top_patterns for practice button — GPT will drill these
+            bot._checkup_patterns[user.id] = gpt.get("top_patterns", [])
 
             def checkup_kb(page, total):
                 nav = []

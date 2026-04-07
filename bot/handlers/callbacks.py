@@ -1685,6 +1685,10 @@ async def cb_checkup_page(callback: CallbackQuery):
     await callback.message.edit_text(pages[page], reply_markup=checkup_kb(page, len(pages)))
 
 
+class CheckupPracticeStates(StatesGroup):
+    in_practice = State()
+
+
 @router.callback_query(F.data == "checkup:practice")
 async def cb_checkup_practice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -1692,102 +1696,133 @@ async def cb_checkup_practice(callback: CallbackQuery, state: FSMContext):
     from bot.utils.prompts import CHECKUP_PRACTICE_SYSTEM
     import json
 
-    # Get errors from today's checkup stored in bot memory
     bot = callback.bot
-    checkup_errors = getattr(bot, "_checkup_errors", {}).get(callback.from_user.id, [])
+    checkup_patterns = getattr(bot, "_checkup_patterns", {}).get(callback.from_user.id, [])
 
-    if not checkup_errors:
-        await callback.message.answer("Нет данных чекапа. Практика доступна только сразу после получения чекапа.")
+    if not checkup_patterns:
+        await callback.message.answer("Нет данных чекапа. Практика доступна сразу после получения чекапа.")
         return
 
-    errors_input = json.dumps([
-        {
-            "user_wrote": e.get("user_wrote", ""),
-            "fix": e.get("fix", e.get("would_be_better", "")),
-            "error": e.get("error", e.get("why", ""))
-        }
-        for e in checkup_errors if e.get("user_wrote")
-    ], ensure_ascii=False)
-
-    loading = await callback.message.answer("⏳ Составляю тест по твоим ошибкам...")
-    result = await ask_groq(CHECKUP_PRACTICE_SYSTEM, errors_input)
+    loading = await callback.message.answer("⏳ Составляю упражнения по твоим паттернам ошибок...")
+    result = await ask_groq(CHECKUP_PRACTICE_SYSTEM, json.dumps(checkup_patterns, ensure_ascii=False))
     await loading.delete()
 
-    if not result or not result.get("questions"):
-        await callback.message.answer("Не удалось составить тест.")
+    if not result or not result.get("exercises"):
+        await callback.message.answer("Не удалось составить упражнения.")
         return
 
-    questions = result["questions"]
-    await state.update_data(
-        checkup_practice_questions=questions,
-        checkup_practice_index=0,
-        checkup_practice_score=0,
-    )
-    await _send_checkup_practice_question(callback.message, state, questions, 0)
+    exercises = result["exercises"]
+    await state.set_state(CheckupPracticeStates.in_practice)
+    await state.update_data(cp_exercises=exercises, cp_index=0, cp_score=0)
+    await _send_checkup_exercise(callback.message, state, exercises, 0)
 
 
-async def _send_checkup_practice_question(message, state, questions, idx):
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    q = questions[idx]
-    total = len(questions)
-    lines = [f"📝 Практика по ошибкам ({idx+1}/{total})\n"]
-    lines.append(q["sentence"])
+async def _send_checkup_exercise(message, state, exercises, idx):
+    q = exercises[idx]
+    total = len(exercises)
+    qtype = q.get("type", "fill_blank")
+    pattern = q.get("pattern", "")
 
-    options = q.get("options", [])
-    if options:
-        lines.append("")
-        for i, opt in enumerate(options, 1):
+    lines = [f"📝 Практика {idx+1}/{total}  |  {pattern}\n"]
+
+    if qtype == "translate":
+        lines.append(f"🇷🇺 {q.get('prompt_ru', '')}")
+        hint = q.get("hint", "")
+        if hint:
+            lines.append(f"💡 Подсказка: {hint}")
+        lines.append("\nПереведи на английский:")
+    elif qtype == "fill_blank":
+        lines.append(q.get("sentence", ""))
+        options = q.get("options", [])
+        if options:
+            lines.append("")
+            for i, opt in enumerate(options, 1):
+                lines.append(f"  {i}. {opt}")
+        lines.append("\n(напиши номер или вариант)")
+    elif qtype == "choose_correct":
+        lines.append("Какое предложение правильное?")
+        for i, opt in enumerate(q.get("options", []), 1):
             lines.append(f"  {i}. {opt}")
-        lines.append("\n(напиши номер или ответ)")
-        kb = None
-    else:
-        lines.append("\n(исправь предложение)")
-        kb = None
+        lines.append("\n(напиши номер)")
 
-    await state.update_data(checkup_practice_index=idx)
-    await message.answer("\n".join(lines), reply_markup=kb)
+    await state.update_data(cp_index=idx)
+    await message.answer("\n".join(lines))
 
 
-@router.message(lambda msg: True)
-async def _handle_checkup_practice_answer(message, state: FSMContext):
-    """Intercept answers during checkup practice session."""
+@router.message(CheckupPracticeStates.in_practice)
+async def cb_checkup_practice_answer(message, state: FSMContext):
+    from bot.services.groq_client import ask_groq
     fsm = await state.get_data()
-    questions = fsm.get("checkup_practice_questions")
-    if not questions:
-        return  # not in practice mode, skip
+    exercises = fsm.get("cp_exercises", [])
+    idx = fsm.get("cp_index", 0)
+    score = fsm.get("cp_score", 0)
 
-    idx = fsm.get("checkup_practice_index", 0)
-    score = fsm.get("checkup_practice_score", 0)
-    q = questions[idx]
-    options = q.get("options", [])
-    correct = q["answer"].lower().strip()
+    if idx >= len(exercises):
+        await state.clear()
+        return
 
+    q = exercises[idx]
+    qtype = q.get("type", "fill_blank")
     user_text = message.text.strip()
-    if user_text.isdigit():
-        n = int(user_text) - 1
-        user_answer = options[n].lower().strip() if 0 <= n < len(options) else user_text.lower()
-    else:
-        user_answer = user_text.lower()
+    explanation = q.get("explanation", "")
 
-    is_correct = user_answer == correct
-    if is_correct:
-        score += 1
-        await message.answer(f"✅ Верно!\n💡 {q.get('rule', '')}")
+    if qtype == "translate":
+        # GPT evaluates free-form translation
+        correct_en = q.get("correct_en", "")
+        eval_prompt = (
+            f"Student translated: \"{user_text}\"\n"
+            f"Correct answer: \"{correct_en}\"\n"
+            f"Pattern being tested: {q.get('pattern', '')}\n"
+            f"Is the student's answer correct or acceptable? "
+            f"Respond ONLY in JSON: {{\"ok\": true/false, \"comment\": \"короткое объяснение на русском если неверно\"}}"
+        )
+        eval_result = await ask_groq("You are a strict English teacher evaluating a translation. Be lenient about word order and synonyms but strict about the grammar pattern being tested.", eval_prompt)
+        is_correct = eval_result.get("ok", False) if eval_result else False
+        comment = eval_result.get("comment", "") if eval_result else ""
+
+        if is_correct:
+            score += 1
+            reply = f"✅ Верно!\n✍️ Эталон: {correct_en}"
+        else:
+            reply = f"❌ Не совсем.\n✍️ Правильно: {correct_en}"
+            if comment:
+                reply += f"\n💡 {comment}"
+        if explanation:
+            reply += f"\n\n{explanation}"
+
+    elif qtype in ("fill_blank", "choose_correct"):
+        options = q.get("options", [])
+        correct = str(q.get("answer", "")).lower().strip()
+        if user_text.isdigit():
+            n = int(user_text) - 1
+            user_answer = options[n].lower().strip() if 0 <= n < len(options) else user_text.lower()
+        else:
+            user_answer = user_text.lower()
+
+        is_correct = user_answer == correct
+        if is_correct:
+            score += 1
+            reply = f"✅ Верно!"
+        else:
+            reply = f"❌ Неверно. Правильно: {q.get('answer', '')}"
+        if explanation:
+            reply += f"\n💡 {explanation}"
     else:
-        await message.answer(f"❌ Неверно. Правильно: {q['answer']}\n💡 {q.get('rule', '')}")
+        is_correct = False
+        reply = f"✍️ Правильный ответ: {q.get('correct_en', q.get('answer', ''))}"
+
+    await message.answer(reply)
+    await state.update_data(cp_score=score)
 
     next_idx = idx + 1
-    await state.update_data(checkup_practice_score=score)
-
-    if next_idx < len(questions):
-        await _send_checkup_practice_question(message, state, questions, next_idx)
+    if next_idx < len(exercises):
+        await _send_checkup_exercise(message, state, exercises, next_idx)
     else:
-        total = len(questions)
-        await state.update_data(checkup_practice_questions=None)
-        await message.answer(
-            f"🏁 Тест завершён: {score}/{total}\n"
-            + ("💪 Отлично!" if score == total else f"Повтори ошибки в журнале /mistakes")
-        )
+        total = len(exercises)
+        await state.clear()
+        pct = round(score / total * 100)
+        verdict = "Всё верно 💪" if score == total else ("Неплохо" if pct >= 60 else "Надо повторить — эти паттерны всё ещё проблема")
+        await message.answer(f"🏁 Результат: {score}/{total} ({pct}%)\n{verdict}")
 
 
 # ─── Daily Challenge ───
