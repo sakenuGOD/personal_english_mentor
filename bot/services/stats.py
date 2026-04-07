@@ -256,9 +256,9 @@ def format_grammar_page(data: dict, page: int) -> tuple[str, int]:
             for c in chunk:
                 name = CONSTRUCTION_LABELS.get(c, c)
                 hint = CONSTRUCTION_HINTS.get(c, "")
-                lines.append(f"  • {name}")
+                lines.append(f"▸ {name}")
                 if hint:
-                    lines.append(f"    ↳ {hint}")
+                    lines.append(f"  {hint}\n")
             pages.append("\n".join(lines))
 
     total = len(pages)
