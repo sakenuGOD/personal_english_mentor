@@ -34,6 +34,10 @@ class VocabReviewStates(StatesGroup):
     answering = State()
 
 
+class BalanceStates(StatesGroup):
+    waiting_initial = State()
+
+
 async def _send_vocab_card(target, state: FSMContext, user_id: int):
     """Pick next due word, randomly choose direction, ask user to type answer."""
     async with async_session() as session:
@@ -571,44 +575,111 @@ async def cb_toggle_notifications(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "settings:usage")
-async def cb_settings_usage(callback: CallbackQuery):
+async def cb_settings_usage(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    from bot.services.groq_client import get_usage_stats, get_api_balance
+    user_id = callback.from_user.id
 
-    await callback.message.answer("⏳ Проверяю баланс...")
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+
+    # First time — ask for initial balance
+    if not user or not user.api_balance_initial:
+        await state.set_state(BalanceStates.waiting_initial)
+        await callback.message.answer(
+            "💰 Введи текущий баланс ProxyAPI в долларах:\n\n"
+            "Например: 5.00\n\n"
+            "(Смотри на proxyapi.ru в личном кабинете)"
+        )
+        return
+
+    _show_usage(callback.message, user)
+
+
+async def _show_usage(target, user):
+    from bot.services.groq_client import get_usage_stats
+    from datetime import datetime
 
     stats = get_usage_stats()
-    balance = await get_api_balance()
 
-    # gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output
+    # gpt-4o-mini: $0.15/1M input, $0.60/1M output
     def calc_cost(s: dict) -> float:
         return s["in"] * 0.00000015 + s["out"] * 0.00000060
 
     t = stats["today"]
     y = stats["yesterday"]
+    total_all = stats["total_all"]
 
-    lines = [
-        "💰 Расходы и баланс",
-        "",
+    cost_today = calc_cost(t)
+    cost_yesterday = calc_cost(y)
+    cost_total = calc_cost(total_all)
+
+    lines = ["💰 Расходы и баланс", ""]
+
+    # Starting balance + remaining
+    try:
+        initial = float(user.api_balance_initial)
+        remaining = initial - cost_total
+        set_at = user.api_balance_set_at.strftime("%d.%m %H:%M") if user.api_balance_set_at else "?"
+        lines += [
+            f"🏦 Начальный баланс: ${initial:.2f} (с {set_at})",
+            f"💸 Потрачено всего: ~${cost_total:.5f}",
+            f"✅ Остаток: ~${remaining:.4f}",
+            "",
+        ]
+    except Exception:
+        pass
+
+    lines += [
         "Сегодня:",
-        f"  📥 Входящих токенов: {t['in']:,}",
-        f"  📤 Исходящих токенов: {t['out']:,}",
-        f"  🔢 Запросов: {t['calls']}",
-        f"  💵 ~${calc_cost(t):.5f}",
+        f"  📥 {t['in']:,} / 📤 {t['out']:,} токенов",
+        f"  🔢 {t['calls']} запросов  💵 ~${cost_today:.5f}",
         "",
         "Вчера:",
-        f"  📥 {y['in']:,} in / 📤 {y['out']:,} out",
-        f"  🔢 {y['calls']} запросов  💵 ~${calc_cost(y):.5f}",
+        f"  📥 {y['in']:,} / 📤 {y['out']:,} токенов",
+        f"  🔢 {y['calls']} запросов  💵 ~${cost_yesterday:.5f}",
     ]
 
-    if balance is not None:
-        lines += ["", f"🏦 Баланс API: {balance}"]
-    else:
-        lines += ["", "🏦 Баланс: не удалось получить"]
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить баланс", callback_data="settings:reset_balance")],
+    ])
+    await target.answer("\n".join(lines), reply_markup=kb)
 
-    lines += ["", "⚠️ Токены считаются с момента запуска бота (in-memory)"]
 
-    await callback.message.answer("\n".join(lines))
+@router.message(BalanceStates.waiting_initial)
+async def cb_balance_input(message: Message, state: FSMContext):
+    text = message.text.strip().replace(",", ".")
+    try:
+        amount = float(text)
+        if amount < 0 or amount > 10000:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Введи корректную сумму, например: 5.00")
+        return
+
+    from datetime import datetime
+    async with async_session() as session:
+        await session.execute(
+            update(User).where(User.id == message.from_user.id).values(
+                api_balance_initial=str(amount),
+                api_balance_set_at=datetime.utcnow(),
+            )
+        )
+        await session.commit()
+        result = await session.execute(select(User).where(User.id == message.from_user.id))
+        user = result.scalar_one_or_none()
+
+    await state.clear()
+    await message.answer(f"✅ Баланс ${amount:.2f} сохранён!")
+    await _show_usage(message, user)
+
+
+@router.callback_query(F.data == "settings:reset_balance")
+async def cb_reset_balance(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(BalanceStates.waiting_initial)
+    await callback.message.answer("💰 Введи новый текущий баланс в долларах:")
 
 
 @router.callback_query(F.data == "settings:back")

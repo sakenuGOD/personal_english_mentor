@@ -34,6 +34,8 @@ class User(Base):
     phrase_last_sent = Column(Date)
     weekly_last_sent = Column(Date)
     vocab_reminded_at = Column(DateTime)
+    api_balance_initial = Column(String(50))   # user-entered starting balance
+    api_balance_set_at = Column(DateTime)      # when it was set
     created_at = Column(DateTime, server_default=func.now())
 
     errors = relationship("Error", back_populates="user")

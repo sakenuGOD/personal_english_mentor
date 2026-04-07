@@ -13,6 +13,8 @@ _NEW_COLUMNS = [
     "ALTER TABLE users ADD COLUMN phrase_last_sent DATE",
     "ALTER TABLE users ADD COLUMN weekly_last_sent DATE",
     "ALTER TABLE users ADD COLUMN vocab_reminded_at DATETIME",
+    "ALTER TABLE users ADD COLUMN api_balance_initial VARCHAR(50)",
+    "ALTER TABLE users ADD COLUMN api_balance_set_at DATETIME",
 ]
 
 

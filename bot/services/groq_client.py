@@ -37,13 +37,19 @@ def _track(usage) -> None:
 
 
 def get_usage_stats() -> dict:
-    """Return today's and yesterday's usage."""
+    """Return today's, yesterday's and all-time usage."""
     from datetime import timedelta
     today = str(date.today())
     yesterday = str(date.today() - timedelta(days=1))
+    total_all: dict = {"in": 0, "out": 0, "calls": 0}
+    for day_stats in _token_log.values():
+        total_all["in"] += day_stats["in"]
+        total_all["out"] += day_stats["out"]
+        total_all["calls"] += day_stats["calls"]
     return {
         "today": _token_log.get(today, {"in": 0, "out": 0, "calls": 0}),
         "yesterday": _token_log.get(yesterday, {"in": 0, "out": 0, "calls": 0}),
+        "total_all": total_all,
     }
 
 
