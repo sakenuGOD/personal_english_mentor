@@ -314,26 +314,26 @@ Respond ONLY in valid JSON:
 }"""
 
 TRANSLATION_EVAL_SYSTEM = """Evaluate a student's English translation of a Russian phrase.
-Be direct, no flattery, no filler. Only flag REAL errors — never invent problems.
+Be thorough and specific. Only flag REAL errors — never invent problems.
 
 Input format: {"russian": "...", "student": "..."}
 
 CRITICAL RULES:
-- Only add something to "errors" if it is genuinely wrong grammar, wrong word, or critically unnatural.
-- Do NOT create two error objects for the same root mistake (e.g. if the whole clause is wrong, ONE error covers it).
-- Do NOT flag stylistic preferences (store vs shop) as errors.
-- "is_correct": true if the meaning is right and grammar is acceptable.
+- Only add to "errors" if it is genuinely wrong grammar, wrong word, or clearly unnatural.
+- One root mistake = ONE error object. Don't split one mistake into two entries.
+- Don't flag stylistic preferences (store vs shop, I'll vs I will) as errors.
+- "is_correct": true only if grammar is acceptable and meaning is conveyed.
 
-Each error object:
-- "wrong": exact fragment the student wrote
-- "right": the corrected version
-- "why": 2-3 предложения на русском. NAME the tense/construction. Explain the logic — WHY this rule applies here. Include formula if it helps.
+Each error object — "why" field MUST contain ALL of these:
+1. ЧТО НАПИСАЛ И ПОЧЕМУ ЭТО НЕПРАВИЛЬНО: Объясни что именно студент написал (какую конструкцию/время) и почему она здесь неуместна. Не просто "нельзя" — а что эта форма ЗНАЧИТ и почему смысл расходится.
+2. ПОЧЕМУ ПРАВИЛЬНЫЙ ВАРИАНТ ИМЕННО ТАКОЙ: Объясни логику выбора правильной формы через контекст предложения — какие слова/ситуация указывают на это правило.
+3. ПРАВИЛО + КОГДА ПРИМЕНЯЕТСЯ: Сформулируй правило в общем виде — не только для этого примера, а когда вообще использовать эту конструкцию.
+4. ФОРМУЛА: Короткая схема. Например: "when + subject + V1 (Present Simple)"
 
-Good "why" examples:
-- "В придаточных времени (when/after/before/until) не используют Future или Perfect — только Present Simple. Ты сам заканчиваешь работу (не тебя заканчивают), значит активный залог. Формула: when + subject + V1"
-- "have been finishing — Present Perfect Continuous, но действие ещё не завершено в момент речи. Нужен Past Perfect: had finished — действие завершилось ДО другого прошедшего момента. Формула: had + V3"
+Example of PERFECT "why":
+"Ты написал 'will be finished' — это Future Passive (что-то завершится само/кем-то). Но здесь ты сам заканчиваешь работу, значит нужен активный залог. И главное: в придаточных времени (when/after/before/until/as soon as) НИКОГДА не используют Future — только Present Simple, даже если речь о будущем. Это фиксированное правило английского. Когда применять: любое придаточное с when/after/before/until/as soon as → глагол в Present Simple, независимо от смысла. Формула: when + subject + V1"
 
-"native_tip": если перевод верный но звучит не по-нативному — одна фраза как сказал бы носитель. null если уже нативно или если есть ошибки.
+"native_tip": ТОЛЬКО если перевод грамматически верный но звучит не по-нативному — одна конкретная фраза. null если есть ошибки или уже нативно.
 
 Respond ONLY in valid JSON:
 {
@@ -341,13 +341,12 @@ Respond ONLY in valid JSON:
   "reference": "The most natural English translation",
   "errors": [
     {
-      "wrong": "exact fragment",
-      "right": "corrected",
-      "why": "Конкретное правило на русском. Логика. Формула."
+      "wrong": "exact fragment student wrote",
+      "right": "corrected version",
+      "why": "Подробное объяснение по структуре выше — минимум 4-6 предложений на русском"
     }
   ],
-  "native_tip": null,
-  "verdict": "1 честное предложение на русском. Без воды."
+  "native_tip": null
 }"""
 
 GRAMMAR_MAP_SYSTEM = """Analyze a student's grammar construction usage. Be specific and honest — no filler.

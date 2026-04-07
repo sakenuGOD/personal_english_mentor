@@ -919,34 +919,27 @@ async def process_translation_answer(message: Message, state: FSMContext):
     reference = result.get("reference", "")
     errors = result.get("errors", [])
     native_tip = result.get("native_tip")
-    verdict = result.get("verdict", "")
 
     lines = []
 
     if is_correct and not errors:
         lines.append("✅ Правильно!")
+        if reference:
+            lines.append(f'\n📌 "{reference}"')
+        if native_tip:
+            lines.append(f"\n💬 Нативнее: {native_tip}")
     else:
-        lines.append("❌ Есть ошибки")
-
-    if reference:
-        lines.append(f'\n📌 "{reference}"')
-
-    if errors:
+        lines.append(f'📌 "{reference}"')
         lines.append("")
         for err in errors:
             wrong = err.get("wrong", "")
             right = err.get("right", "")
             why = err.get("why", "")
-            lines.append(f"❌ {wrong} → {right}")
-            if why:
-                lines.append(f"   {why}")
+            lines.append(f"❌ {wrong}  →  {right}")
             lines.append("")
-
-    if native_tip:
-        lines.append(f"💬 Нативнее: {native_tip}")
-
-    if verdict:
-        lines.append(verdict)
+            if why:
+                lines.append(why)
+            lines.append("")
 
     await state.clear()
     await message.answer("\n".join(lines).strip(), reply_markup=translation_result_keyboard())
