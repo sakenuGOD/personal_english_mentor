@@ -33,6 +33,7 @@ class User(Base):
     groq_api_key = Column(String(255))
     phrase_last_sent = Column(Date)
     weekly_last_sent = Column(Date)
+    vocab_reminded_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
 
     errors = relationship("Error", back_populates="user")

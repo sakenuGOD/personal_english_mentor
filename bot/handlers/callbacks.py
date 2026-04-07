@@ -735,6 +735,31 @@ async def cb_workout_translation(callback: CallbackQuery, state: FSMContext):
     await start_translation_workout(callback, state, callback.from_user.id)
 
 
+# ─── Vocab reminder buttons ───
+@router.callback_query(F.data == "vocab:start_review")
+async def cb_vocab_start_review(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    from bot.services.vocabulary import get_words_for_review
+    from bot.keyboards.inline import vocab_review_keyboard
+    async with async_session() as session:
+        words = await get_words_for_review(session, callback.from_user.id, limit=1)
+    if not words:
+        await callback.message.answer("✅ Все слова уже повторены!")
+        return
+    w = words[0]
+    await callback.message.answer(
+        f"📚 Словарь\n\n🔄 Что значит \"{w.word}\"?",
+        reply_markup=vocab_review_keyboard(w.id),
+    )
+
+
+@router.callback_query(F.data == "vocab:remind_later")
+async def cb_vocab_remind_later(callback: CallbackQuery):
+    await callback.answer("Хорошо, напомню позже")
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+
 # ─── Vocab save from explain breakdown ───
 @router.callback_query(F.data.startswith("vocab:explain_save:"))
 async def cb_explain_vocab_save(callback: CallbackQuery):

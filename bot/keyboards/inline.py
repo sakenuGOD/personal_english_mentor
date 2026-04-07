@@ -261,6 +261,15 @@ def correction_vocab_keyboard(word: str) -> InlineKeyboardMarkup:
     ])
 
 
+def vocab_reminder_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📚 Да, давай", callback_data="vocab:start_review"),
+            InlineKeyboardButton(text="⏰ Не сейчас", callback_data="vocab:remind_later"),
+        ],
+    ])
+
+
 def grammar_map_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:grammar_map")],

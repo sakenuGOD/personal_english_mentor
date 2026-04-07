@@ -15,13 +15,18 @@ logger = logging.getLogger(__name__)
 async def scheduler_loop(bot):
     """Runs forever, fires scheduled tasks every 60 seconds."""
     logger.info("Scheduler started")
+    tick = 0
     while True:
         try:
             await asyncio.sleep(60)
+            tick += 1
             now = datetime.now(timezone.utc)
             await _check_phrase_of_day(bot, now)
-            if now.weekday() == 6:  # Sunday
+            if now.weekday() == 6:
                 await _check_weekly_insights(bot, now)
+            # Vocab reminder — check every 30 minutes
+            if tick % 30 == 0:
+                await _check_vocab_reminder(bot)
         except Exception as e:
             logger.error(f"Scheduler error: {e}")
 
@@ -68,6 +73,57 @@ async def _check_phrase_of_day(bot, now: datetime):
 
         except Exception as e:
             logger.warning(f"Failed to send phrase to user {user.id}: {e}")
+
+
+async def _check_vocab_reminder(bot):
+    """Send vocab review reminder if user has words due and hasn't been reminded in 8h."""
+    from bot.services.vocabulary import get_words_for_review
+    from bot.keyboards.inline import vocab_reminder_keyboard
+
+    now = datetime.now(timezone.utc)
+    min_interval_hours = 8
+    cutoff = now.replace(tzinfo=None) - __import__("datetime").timedelta(hours=min_interval_hours)
+
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.notifications == True))
+        users = result.scalars().all()
+
+    for user in users:
+        try:
+            # Skip if reminded recently
+            if user.vocab_reminded_at and user.vocab_reminded_at > cutoff:
+                continue
+
+            # Check if words are due
+            async with async_session() as session:
+                due_words = await get_words_for_review(session, user.id, limit=5)
+
+            if not due_words:
+                continue
+
+            count = len(due_words)
+            word_preview = ", ".join(f'"{w.word}"' for w in due_words[:3])
+            text = (
+                f"📚 Пора повторить слова!\n\n"
+                f"У тебя {count} слов{'о' if count == 1 else 'а' if count < 5 else ''} ждут повторения:\n"
+                f"{word_preview}{'...' if count > 3 else ''}\n\n"
+                f"Проверим себя?"
+            )
+
+            from bot.keyboards.inline import vocab_reminder_keyboard
+            await bot.send_message(chat_id=user.id, text=text, reply_markup=vocab_reminder_keyboard())
+
+            # Update reminded_at
+            async with async_session() as session:
+                await session.execute(
+                    update(User).where(User.id == user.id).values(vocab_reminded_at=now.replace(tzinfo=None))
+                )
+                await session.commit()
+
+            logger.info(f"Sent vocab reminder to user {user.id} ({count} words due)")
+
+        except Exception as e:
+            logger.warning(f"Vocab reminder failed for user {user.id}: {e}")
 
 
 async def _check_weekly_insights(bot, now: datetime):

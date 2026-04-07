@@ -180,7 +180,7 @@ Respond ONLY in valid JSON:
       "note": "доп контекст если есть (откуда взялось, когда используют, чем отличается от формального варианта). null если обычное слово"
     }
   ],
-  "grammar_note": "если собеседник допустил грамматическую ошибку — кратко укажи: 'wait me → wait for me (пропущен предлог for)'. null если всё правильно",
+  "grammar_note": "если собеседник допустил грамматическую ошибку — укажи ошибку И объясни правило коротко: 'good → well: good — прилагательное (a good result), well — наречие для глаголов (it works well). После глагола нужно наречие'. null если всё правильно",
   "how_to_reply": ["вариант ответа на английском 1", "вариант 2", "вариант 3"],
   "cultural_note": "культурный контекст если есть (почему так говорят, в каких ситуациях). null если не нужно"
 }
@@ -188,7 +188,7 @@ Respond ONLY in valid JSON:
 IMPORTANT:
 - word_breakdown: include informal/colloquial words (anyways, gonna, wanna, tbh, ngl, lowkey, etc.) even if meaning seems obvious — explain WHY it's informal and what the standard form is
 - how_to_reply: 2-3 natural English replies the user could send back. This is the MOST useful part
-- grammar_note: only real errors (wrong preposition, wrong verb form, missing word). Ignore missing punctuation/capitalization
+- grammar_note: only real errors (wrong preposition, wrong verb form, missing word). Include the fix AND a short rule explanation (1-2 sentences). Ignore missing punctuation/capitalization
 - If the phrase is very simple ("ok", "see you") — keep it short, don't overexplain
 - cultural_note: only if there's something genuinely interesting (e.g. "this is a common passive-aggressive phrase in work emails")"""
 

@@ -12,6 +12,7 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 _NEW_COLUMNS = [
     "ALTER TABLE users ADD COLUMN phrase_last_sent DATE",
     "ALTER TABLE users ADD COLUMN weekly_last_sent DATE",
+    "ALTER TABLE users ADD COLUMN vocab_reminded_at DATETIME",
 ]
 
 
