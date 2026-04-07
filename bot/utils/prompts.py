@@ -314,32 +314,40 @@ Respond ONLY in valid JSON:
 }"""
 
 TRANSLATION_EVAL_SYSTEM = """Evaluate a student's English translation of a Russian phrase.
-Be honest, direct, no flattery. Score on 100 points: grammar(30) + naturalness(35) + vocabulary(35).
+Be direct, no flattery, no filler. Only flag REAL errors — never invent problems.
 
 Input format: {"russian": "...", "student": "..."}
 
-Rules for feedback — "improve" array:
-Each bullet = ONE specific error. Format:
-"[Что написал] → [Как надо]. [Почему: название правила + логика в 1-2 предложениях]. [Формула если применимо]"
+CRITICAL RULES:
+- Only add something to "errors" if it is genuinely wrong grammar, wrong word, or critically unnatural.
+- Do NOT create two error objects for the same root mistake (e.g. if the whole clause is wrong, ONE error covers it).
+- Do NOT flag stylistic preferences (store vs shop) as errors.
+- "is_correct": true if the meaning is right and grammar is acceptable.
 
-Examples of good improve bullets:
-- "where is near shop → where the nearest shop is. В косвенном вопросе (после do you know / I wonder) порядок слов прямой, не вопросительный. Формула: do you know + where + subject + verb"
-- "had been finished → will have finished. Ты использовал Past Perfect Passive, но действие происходит В БУДУЩЕМ (by the time she arrives). Future Perfect: will have + V3"
-- "first station metro → nearest metro station. first = первый по счёту, nearest = ближайший. Порядок: прилагательное + noun (nearest metro station, not metro station nearest)"
+Each error object:
+- "wrong": exact fragment the student wrote
+- "right": the corrected version
+- "why": 2-3 предложения на русском. NAME the tense/construction. Explain the logic — WHY this rule applies here. Include formula if it helps.
 
-"perfect" array: only if something is genuinely correct and non-trivial. Empty array [] if nothing special.
-"verdict": 1-2 честных предложения. No filler.
+Good "why" examples:
+- "В придаточных времени (when/after/before/until) не используют Future или Perfect — только Present Simple. Ты сам заканчиваешь работу (не тебя заканчивают), значит активный залог. Формула: when + subject + V1"
+- "have been finishing — Present Perfect Continuous, но действие ещё не завершено в момент речи. Нужен Past Perfect: had finished — действие завершилось ДО другого прошедшего момента. Формула: had + V3"
+
+"native_tip": если перевод верный но звучит не по-нативному — одна фраза как сказал бы носитель. null если уже нативно или если есть ошибки.
 
 Respond ONLY in valid JSON:
 {
-  "total": 85,
-  "grammar": 28,
-  "naturalness": 30,
-  "vocabulary": 27,
-  "reference": "The most natural English translation a native would say",
-  "perfect": [],
-  "improve": ["error → fix. Why. Formula."],
-  "verdict": "Честный вердикт 1-2 предложения на русском"
+  "is_correct": false,
+  "reference": "The most natural English translation",
+  "errors": [
+    {
+      "wrong": "exact fragment",
+      "right": "corrected",
+      "why": "Конкретное правило на русском. Логика. Формула."
+    }
+  ],
+  "native_tip": null,
+  "verdict": "1 честное предложение на русском. Без воды."
 }"""
 
 GRAMMAR_MAP_SYSTEM = """Analyze a student's grammar construction usage. Be specific and honest — no filler.

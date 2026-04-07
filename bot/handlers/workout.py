@@ -915,38 +915,38 @@ async def process_translation_answer(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    total = result.get("total", 0)
+    is_correct = result.get("is_correct", False)
     reference = result.get("reference", "")
-    perfect = result.get("perfect", [])
-    improve = result.get("improve", [])
+    errors = result.get("errors", [])
+    native_tip = result.get("native_tip")
     verdict = result.get("verdict", "")
 
-    if total >= 90:
-        badge = "🔥"
-    elif total >= 75:
-        badge = "👍"
-    elif total >= 60:
-        badge = "📈"
-    else:
-        badge = "💪"
+    lines = []
 
-    lines = [f"{badge} {total}/100"]
+    if is_correct and not errors:
+        lines.append("✅ Правильно!")
+    else:
+        lines.append("❌ Есть ошибки")
 
     if reference:
         lines.append(f'\n📌 "{reference}"')
 
-    if improve:
+    if errors:
         lines.append("")
-        for imp in improve:
-            lines.append(f"❌ {imp}")
+        for err in errors:
+            wrong = err.get("wrong", "")
+            right = err.get("right", "")
+            why = err.get("why", "")
+            lines.append(f"❌ {wrong} → {right}")
+            if why:
+                lines.append(f"   {why}")
+            lines.append("")
 
-    if perfect:
-        lines.append("")
-        for p in perfect:
-            lines.append(f"✅ {p}")
+    if native_tip:
+        lines.append(f"💬 Нативнее: {native_tip}")
 
     if verdict:
-        lines.append(f"\n{verdict}")
+        lines.append(verdict)
 
     await state.clear()
-    await message.answer("\n".join(lines), reply_markup=translation_result_keyboard())
+    await message.answer("\n".join(lines).strip(), reply_markup=translation_result_keyboard())
