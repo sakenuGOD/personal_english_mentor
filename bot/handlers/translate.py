@@ -11,6 +11,14 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
+_SKIP_TRANSLATE = {
+    "ok", "okay", "yes", "no", "yeah", "nope", "sure", "thanks", "thank you",
+    "bye", "hi", "hello", "hey", "lol", "haha", "nice", "cool", "wow", "omg",
+    "np", "ty", "gn", "gm", "wtf", "lmao", "fr", "nah", "yep", "ок", "окей",
+    "да", "нет", "ну", "всё", "все", "хм", "ага", "не", "+", "-", "...",
+}
+
+
 @router.message(F.text)
 async def auto_translate(message: Message, state: FSMContext):
     """Default handler: translate any text when no FSM state is active."""
@@ -20,6 +28,16 @@ async def auto_translate(message: Message, state: FSMContext):
 
     text = message.text.strip()
     if text.startswith("/"):
+        return
+
+    # Skip too short or single-word junk
+    if len(text) < 3:
+        return
+    if text.lower().strip("!?.,;:)( ") in _SKIP_TRANSLATE:
+        return
+    # Skip if it's just emoji or numbers
+    alpha = sum(1 for c in text if c.isalpha())
+    if alpha < 2:
         return
 
     result = await ask_groq(TRANSLATE_SYSTEM, text)

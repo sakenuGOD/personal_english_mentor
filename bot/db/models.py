@@ -137,6 +137,16 @@ class Battle(Base):
     active = Column(Boolean, default=True)
 
 
+class WordCache(Base):
+    """Cache for word lookups — avoids repeated GPT calls for the same word."""
+    __tablename__ = "word_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    word = Column(String(255), unique=True, index=True)
+    data = Column(JSON)
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class RoleplaySession(Base):
     __tablename__ = "roleplay_sessions"
 

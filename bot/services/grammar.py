@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.models import Error, Message, User
 from bot.services.groq_client import ask_groq
-from bot.utils.prompts import AUTOCORRECT_SYSTEM, AUTOCORRECT_USER, SMART_GRAMMAR_SYSTEM
+from bot.utils.prompts import AUTOCORRECT_SYSTEM, AUTOCORRECT_USER
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +17,6 @@ async def check_grammar(text: str, mode: str = "balanced", api_key: str | None =
     user_msg = AUTOCORRECT_USER.format(mode=mode, text=text)
     return await ask_groq(AUTOCORRECT_SYSTEM, user_msg, api_key=api_key)
 
-
-async def detect_constructions(text: str, api_key: str | None = None) -> list[str]:
-    result = await ask_groq(SMART_GRAMMAR_SYSTEM, text, api_key=api_key)
-    if result and "constructions" in result:
-        return result["constructions"]
-    return []
 
 
 async def save_error(

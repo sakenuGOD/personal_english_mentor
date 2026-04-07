@@ -619,12 +619,18 @@ async def _show_usage(target, user):
     # Starting balance + remaining
     try:
         initial = float(user.api_balance_initial)
-        remaining = initial - cost_total
+        remaining = max(0.0, initial - cost_total)
         set_at = user.api_balance_set_at.strftime("%d.%m %H:%M") if user.api_balance_set_at else "?"
+
+        # Avg cost per call (use total_all if available, else fallback)
+        avg_cost = calc_cost(total_all) / total_all["calls"] if total_all["calls"] > 0 else 0.0003
+        est_requests = int(remaining / avg_cost) if avg_cost > 0 else 0
+
         lines += [
             f"🏦 Начальный баланс: ${initial:.2f} (с {set_at})",
             f"💸 Потрачено всего: ~${cost_total:.5f}",
             f"✅ Остаток: ~${remaining:.4f}",
+            f"🔢 Это примерно {est_requests:,} запросов",
             "",
         ]
     except Exception:

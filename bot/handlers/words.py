@@ -8,8 +8,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
 
+from sqlalchemy import insert
 from bot.db.database import async_session
-from bot.db.models import User
+from bot.db.models import User, WordCache
 from bot.services.groq_client import ask_groq
 from bot.utils.prompts import WORD_SUGGEST_SYSTEM, get_topic_hint
 from bot.keyboards.inline import word_result_keyboard
@@ -36,14 +37,31 @@ async def process_word(message: Message, state: FSMContext):
     word = message.text.strip().lower()
     await message.answer("💡 Ищу...")
 
-    # Get user topic
+    # Check cache first
     async with async_session() as session:
-        result = await session.execute(select(User).where(User.id == message.from_user.id))
-        user = result.scalar_one_or_none()
-    topic = user.topic_pack if user else "general"
-    prompt = WORD_SUGGEST_SYSTEM + get_topic_hint(topic)
+        cached = await session.execute(select(WordCache).where(WordCache.word == word))
+        cached_row = cached.scalar_one_or_none()
 
-    result = await ask_groq(prompt, word)
+    if cached_row:
+        result = cached_row.data
+        logger.info(f"Word cache hit: {word}")
+    else:
+        # Get user topic
+        async with async_session() as session:
+            u = await session.execute(select(User).where(User.id == message.from_user.id))
+            user = u.scalar_one_or_none()
+        topic = user.topic_pack if user else "general"
+        prompt = WORD_SUGGEST_SYSTEM + get_topic_hint(topic)
+        result = await ask_groq(prompt, word)
+
+        # Save to cache
+        if result:
+            try:
+                async with async_session() as session:
+                    session.add(WordCache(word=word, data=result))
+                    await session.commit()
+            except Exception:
+                pass  # duplicate key — fine
 
     if not result:
         await message.answer("⚠️ Сервис временно недоступен.")
