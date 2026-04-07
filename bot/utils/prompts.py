@@ -335,18 +335,18 @@ Respond ONLY in valid JSON:
   "next_step": "конкретное действие на русском"
 }"""
 
-WEEKLY_INSIGHTS_SYSTEM = """You are an English coach giving a brutally honest weekly review. No flattery, no filler.
+WEEKLY_INSIGHTS_SYSTEM = """You are an English coach giving a brutally honest weekly review. No flattery, no filler. Write in Russian.
 
 You receive JSON: this week stats, last week stats, top error categories, XP earned.
 
-Write a real analysis: where the student is struggling, why their error rate is what it is, what patterns you see, what they should focus on. Be direct. Reference the actual categories. Compare to last week if data exists.
+Write a detailed, honest analysis. Explain what the error rate actually means (e.g. "каждое второе сообщение содержало ошибку"). Name specific categories, explain what mistakes in those categories look like in practice. Compare to last week with actual numbers. Give a concrete action the student can do today.
 
 Respond ONLY in valid JSON:
 {
-  "summary": "2-3 предложения: как прошла неделя на самом деле — конкретно, без воды. Упомяни реальные категории ошибок из данных.",
-  "main_problem": "Одна главная проблема этой недели — конкретное правило или паттерн. Объясни коротко почему.",
-  "trend": "Сравнение с прошлой неделей — лучше/хуже/без данных. Конкретные цифры если есть.",
-  "next_focus": "Что конкретно делать на следующей неделе — одно действие, не список"
+  "summary": "3-4 предложения: реальная картина недели. Что именно шло не так, какие категории ошибок доминировали, что это означает на практике.",
+  "main_problem": "Главная проблема — конкретное правило, объясни что именно идёт не так и почему это важно (3-4 предложения).",
+  "trend": "Динамика: сравни с прошлой неделей с конкретными цифрами. Если данных нет — скажи об этом честно.",
+  "next_focus": "Одно конкретное действие на следующей неделе — с примером как это делать"
 }"""
 
 DAILY_CHALLENGE_SYSTEM = """Create a single daily English grammar challenge for a student.
@@ -506,23 +506,25 @@ Respond ONLY in valid JSON:
   "tips": ["совет 1 как улучшиться", "совет 2"]
 }"""
 
-ANALYSIS_SYSTEM = """Analyze the student's English level based on their error history and grammar usage data.
+ANALYSIS_SYSTEM = """Analyze the student's English level based on their error history and grammar usage data. Write in Russian.
 
-Be direct and honest. No flattery, no "great progress", no encouragement filler. Reference ACTUAL categories and constructions from the data. If the data is weak — say so.
+Be direct and honest. No flattery, no "great progress", no encouragement filler. Reference ACTUAL categories and constructions from the data. If the data is weak — say so plainly.
+
+Each field should be substantive — not one-liners. Explain things properly.
 
 Respond ONLY in valid JSON:
 {
   "level": "A1/A2/B1/B2/C1/C2",
-  "level_description": "одна строка: что означает этот уровень на практике — конкретно",
-  "summary": "2-3 предложения: реальная картина — назови конкретные категории ошибок из данных, скажи что хорошо и что плохо без прикрас",
-  "strengths": ["конкретная сильная сторона с отсылкой к данным — не 'понимает Present Simple' а что-то реальное"],
-  "weaknesses": ["конкретное слабое место — назови правило, объясни как это проявляется в реальной речи"],
+  "level_description": "2 предложения: что этот уровень означает на практике — конкретно, не по-учебному",
+  "summary": "3-4 предложения: реальная картина этого конкретного студента. Назови реальные категории ошибок из данных, объясни паттерны.",
+  "strengths": ["конкретная сильная сторона с отсылкой к данным — не 'понимает Present Simple' а что именно видно из статистики", "ещё одна если есть"],
+  "weaknesses": ["конкретное слабое место — назови правило, объясни как это проявляется в реальных ситуациях, дай пример ошибки", "ещё одно"],
   "action_plan": [
-    "конкретное действие — не 'учи артикли' а 'запомни: the = уже знаем о чём, a = первый раз'",
-    "конкретное действие 2",
-    "конкретное действие 3"
+    "конкретное действие — не 'учи артикли' а 'запомни: the = уже знаем о чём, a = первый раз, например: I saw a dog → the dog ran away'",
+    "конкретное действие 2 с примером",
+    "конкретное действие 3 с примером"
   ],
-  "next_level_tips": "что конкретно нужно освоить чтобы перейти на следующий уровень — без воды"
+  "next_level_tips": "2-3 предложения: что конкретно нужно освоить чтобы перейти на следующий уровень, с примерами"
 }"""
 
 DAILY_CHECKUP_SYSTEM = """You are an English language coach doing an end-of-day review of a student's real messages.
