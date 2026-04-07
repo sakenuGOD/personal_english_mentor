@@ -981,23 +981,46 @@ async def check_local(text: str) -> list[dict] | None:
 #  COMBINED CHECKER
 # ═══════════════════════════════════════════════
 
-async def has_errors(text: str) -> bool:
-    """Quick check: does the text have grammar errors?
-    Uses LanguageTool API + local pattern matching.
-    Returns True if API failed (fallback to GPT)."""
+async def has_errors(text: str, use_gpt_fallback: bool = True) -> bool:
+    """
+    3-layer grammar error detector:
+    1. Pattern checker  — instant, free, catches ~40 specific ESL patterns
+    2. LanguageTool API — fast, free, catches 5000+ rule-based errors
+    3. GPT mini-check   — cheap ($0.000015), catches ANYTHING incl. word order
 
-    # 1. Smart pattern check (instant, free)
+    Returns True if errors found, False if clean.
+    """
+    # ── Layer 1: Pattern checker (instant, free) ──
     pattern_errors = _check_patterns(text)
     if pattern_errors:
-        logger.info(f"Pattern checker found: {pattern_errors}")
+        logger.info(f"[L1-Pattern] found: {pattern_errors[:2]}")
         return True
 
-    # 2. LanguageTool API
+    # ── Layer 2: LanguageTool API (fast, free) ──
     lt_errors = await check_local(text)
     if lt_errors is None:
-        # API failed → send to GPT to be safe
+        logger.warning("[L2-LT] API failed → fallback to GPT mini-check")
+        # Don't return True immediately — try GPT mini-check
+    elif lt_errors:
+        logger.info(f"[L2-LT] found: {[(e['rule'], e['original']) for e in lt_errors]}")
         return True
 
-    if lt_errors:
-        logger.info(f"LanguageTool found: {[(e['rule'], e['original']) for e in lt_errors]}")
-    return len(lt_errors) > 0
+    # ── Layer 3: GPT mini-check (cheap, catches word order / naturalness) ──
+    if not use_gpt_fallback:
+        return False
+
+    # Only run for messages with 5+ words — short phrases rarely have catchable errors
+    # and mini-check has more false positives on short text
+    words = text.split()
+    if len(words) < 5:
+        return False
+
+    from bot.services.groq_client import ask_grammar_check
+    result = await ask_grammar_check(text)
+    if result is True:
+        logger.info(f"[L3-GPT] mini-check flagged: '{text[:60]}'")
+        return True
+    if result is None:
+        logger.warning("[L3-GPT] mini-check failed → assume no error")
+
+    return False
