@@ -265,19 +265,22 @@ def correction_vocab_keyboard(word: str) -> InlineKeyboardMarkup:
     ])
 
 
-def curriculum_keyboard(level: str) -> InlineKeyboardMarkup:
-    levels = ["A2", "B1", "B2"]
-    idx = levels.index(level) if level in levels else 0
-    nav = []
-    if idx > 0:
-        nav.append(InlineKeyboardButton(text=f"◀️ {levels[idx-1]}", callback_data=f"curriculum:level:{levels[idx-1]}"))
-    nav.append(InlineKeyboardButton(text="🔄", callback_data=f"curriculum:level:{level}"))
-    if idx < len(levels) - 1:
-        nav.append(InlineKeyboardButton(text=f"{levels[idx+1]} ▶️", callback_data=f"curriculum:level:{levels[idx+1]}"))
-    return InlineKeyboardMarkup(inline_keyboard=[
-        nav,
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")],
+def curriculum_keyboard(weak_topics: list[tuple[str, int]]) -> InlineKeyboardMarkup:
+    from bot.services.curriculum import TOPIC_INFO
+    rows = []
+    for topic, count in weak_topics[:5]:
+        info = TOPIC_INFO.get(topic, {})
+        name = info.get("name", topic)
+        emoji = info.get("emoji", "•")
+        rows.append([InlineKeyboardButton(
+            text=f"{emoji} {name}",
+            callback_data=f"curriculum:practice:{topic}",
+        )])
+    rows.append([
+        InlineKeyboardButton(text="🔄 Обновить", callback_data="progress:curriculum"),
+        InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back"),
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def vocab_reminder_keyboard() -> InlineKeyboardMarkup:

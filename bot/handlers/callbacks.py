@@ -516,28 +516,46 @@ async def _advance_level_phase(callback: CallbackQuery, state: FSMContext, curre
 @router.callback_query(F.data == "progress:curriculum")
 async def cb_curriculum(callback: CallbackQuery):
     await callback.answer()
-    # Default: show A2 first
-    from bot.services.curriculum import get_curriculum_progress, format_level_text
+    from bot.services.curriculum import get_path_data, format_path_text
     from bot.keyboards.inline import curriculum_keyboard
     async with async_session() as session:
-        progress = await get_curriculum_progress(session, callback.from_user.id)
-    text = format_level_text(progress, "A2")
-    await callback.message.answer(text, reply_markup=curriculum_keyboard("A2"))
+        data = await get_path_data(session, callback.from_user.id)
+    text = format_path_text(data)
+    kb = curriculum_keyboard(data.get("weak_topics", []))
+    await callback.message.answer(text, reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("curriculum:level:"))
-async def cb_curriculum_level(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("curriculum:practice:"))
+async def cb_curriculum_practice(callback: CallbackQuery, state: FSMContext):
+    topic = callback.data.split(":", 2)[2]
     await callback.answer()
-    level = callback.data.split(":")[-1]
-    from bot.services.curriculum import get_curriculum_progress, format_level_text
-    from bot.keyboards.inline import curriculum_keyboard
-    async with async_session() as session:
-        progress = await get_curriculum_progress(session, callback.from_user.id)
-    text = format_level_text(progress, level)
-    try:
-        await callback.message.edit_text(text, reply_markup=curriculum_keyboard(level))
-    except Exception:
-        await callback.message.answer(text, reply_markup=curriculum_keyboard(level))
+    from bot.services.curriculum import TOPIC_INFO
+    from bot.services.groq_client import ask_groq
+
+    info = TOPIC_INFO.get(topic, {})
+    name = info.get("name", topic)
+
+    await callback.message.answer(f"⏳ Генерирую упражнение на тему «{name}»...")
+
+    from bot.utils.prompts import TOPIC_TEST_SYSTEM
+    result = await ask_groq(
+        TOPIC_TEST_SYSTEM,
+        f"Topic: {name}. Focus specifically on this grammar construction. Number of questions: 5"
+    )
+    if not result or not result.get("questions"):
+        await callback.message.answer("⚠️ Не удалось создать упражнение.")
+        return
+
+    questions = result.get("questions", [])
+    await state.set_state(TopicTestStates.in_test)
+    await state.update_data(
+        questions=questions,
+        current_q=0,
+        correct=0,
+        topic_title=name,
+    )
+    await callback.message.answer(f"📌 {name} — 5 вопросов")
+    await _send_topic_question(callback.message, state)
 
 
 @router.callback_query(F.data == "progress:stats")
