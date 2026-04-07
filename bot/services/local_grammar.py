@@ -13,8 +13,29 @@ SKIP_RULES = {
     "UPPERCASE_SENTENCE_START", "WHITESPACE_RULE",
     "COMMA_PARENTHESIS_WHITESPACE", "EN_QUOTES",
     "DOUBLE_PUNCTUATION", "SENTENCE_WHITESPACE",
+    # ── Chat-friendly: skip casing/style in casual messages ──
+    "I_LOWERCASE",                    # "i" instead of "I" — normal in chat
+    "MORFOLOGIK_RULE_EN_US",          # spell-check: too many false positives on slang/names
+    "EN_CONTRACTION_SPELLING",        # "dont" vs "don't" — fine in chat
+    "WORD_CONTAINS_UNDERSCORE",       # code/usernames
+    "EN_UNPAIRED_BRACKETS",           # casual punctuation
+    "EN_A_VS_AN",                     # too aggressive, often wrong on acronyms
+    "ENGLISH_WORD_REPEAT_RULE",       # "very very" — intentional emphasis in chat
+    "COMMA_COMPOUND_SENTENCE",        # comma before "and" — style, not grammar
+    "COMMA_COMPOUND_SENTENCE_2",      # same
+    "MISSING_COMMA_AFTER_INTRODUCTORY_PHRASE",  # style
+    "INTERJECTIONS_PUNCTUATION",      # "haha" needs comma — no in chat
+    "DASH_RULE",                      # em-dash style
+    "POSSESSIVE_APOSTROPHE",          # "thats" vs "that's" — chat
+    "IT_IS",                          # "its" vs "it's" — often intentional in chat
+    "IT_IS_2",                        # same
+    "YOUR_YOU_RE",                    # "ur" / "your" — chat abbreviation
+    "THEIR_IS",                       # "there" vs "their" — often intentional
+    "BEEN_PART_AGREEMENT",            # often wrong on chat fragments
 }
-SKIP_CATEGORIES = {"TYPOGRAPHY", "CASING"}
+# Also skip rules that just suggest alternative spellings / style choices
+SKIP_RULE_PREFIXES = {"AI_", "MORFOLOGIK_", "CONFUSION_RULE"}
+SKIP_CATEGORIES = {"TYPOGRAPHY", "CASING", "STYLE"}
 
 
 # ═══════════════════════════════════════════════
@@ -753,6 +774,8 @@ async def check_local(text: str) -> list[dict] | None:
             continue
         if category_id in SKIP_CATEGORIES:
             continue
+        if any(rule_id.startswith(p) for p in SKIP_RULE_PREFIXES):
+            continue
 
         replacements = [r["value"] for r in m.get("replacements", [])[:3]]
         errors.append({
@@ -782,8 +805,11 @@ async def has_errors(text: str) -> bool:
         return True
 
     # 2. LanguageTool API
-    errors = await check_local(text)
-    if errors is None:
+    lt_errors = await check_local(text)
+    if lt_errors is None:
         # API failed → send to GPT to be safe
         return True
-    return len(errors) > 0
+
+    if lt_errors:
+        logger.info(f"LanguageTool found: {[(e['rule'], e['original']) for e in lt_errors]}")
+    return len(lt_errors) > 0

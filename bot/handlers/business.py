@@ -15,6 +15,8 @@ from bot.services.grammar import (
 )
 from bot.services.local_grammar import has_errors as local_has_errors
 from bot.services.gamification import add_xp, update_streak
+from bot.services.groq_client import ask_groq
+from bot.utils.prompts import MEANING_SYSTEM
 from bot.handlers.commands import get_or_create_user
 from bot.config import XP_NO_ERROR, XP_COMPLEX_NO_ERROR, XP_ERROR
 
@@ -102,14 +104,21 @@ async def handle_business_message(message: Message, bot: Bot):
     # Cache message for reply-based checking
     _cache_message(message.chat.id, message.message_id, text, user_id)
 
-    # If user replies "?" to their own message → full GPT check (grammar + naturalness)
+    # If user replies "?" to a message in business chat
     if text in ("?", "/check", "check") and message.reply_to_message:
         reply_text = message.reply_to_message.text
-        if reply_text and message.reply_to_message.from_user and message.reply_to_message.from_user.id == user_id:
-            logger.info(f"Reply check from user {user_id}")
-            # Delete "?" immediately via deleteBusinessMessages (Bot API 9.0)
-            await _delete_business_msg(bot, business_connection_id, message.message_id)
-            # Get user mode
+        if not reply_text:
+            return
+
+        # Delete "?" immediately
+        await _delete_business_msg(bot, business_connection_id, message.message_id)
+
+        reply_from = message.reply_to_message.from_user
+        is_own_message = reply_from and reply_from.id == user_id
+
+        if is_own_message:
+            # ── "?" on OWN message → grammar check ──
+            logger.info(f"Reply grammar check from user {user_id}")
             async with async_session() as s:
                 ur = await s.execute(select(User).where(User.id == user_id))
                 u = ur.scalar_one_or_none()
@@ -118,7 +127,11 @@ async def handle_business_message(message: Message, bot: Bot):
                               message=message.reply_to_message,
                               business_connection_id=business_connection_id,
                               reaction_check=True)
-            return
+        else:
+            # ── "?" on PARTNER's message → explain what they meant ──
+            logger.info(f"Reply meaning check from user {user_id}: '{reply_text[:50]}'")
+            await _explain_message(reply_text, user_id, message.chat, bot)
+        return
 
     # Skip short messages
     if len(text) < 3 or len(text.split()) < 3:
@@ -161,6 +174,73 @@ async def handle_business_message(message: Message, bot: Bot):
 
     # === LOCAL FOUND ERRORS → send to GPT for detailed explanation ===
     await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+
+
+async def _explain_message(text: str, user_id: int, chat, bot: Bot):
+    """Explain what the partner's message means — translate + breakdown."""
+    result = await ask_groq(MEANING_SYSTEM, text)
+    if not result:
+        return
+
+    chat_name = f"@{chat.username}" if chat.username else str(chat.id)
+    sep = "=" * 30
+    lines = [sep, f"Чат {chat_name}", ""]
+    lines.append(f'💬 "{text}"')
+    lines.append("")
+
+    # Translation
+    translation = result.get("translation", "")
+    if translation:
+        lines.append(f"📝 Перевод: {translation}")
+        lines.append("")
+
+    # Meaning / subtext
+    meaning = result.get("meaning")
+    if meaning:
+        lines.append(f"💡 Что имел ввиду: {meaning}")
+        lines.append("")
+
+    # Tone
+    tone = result.get("tone", "")
+    if tone:
+        lines.append(f"🎭 Тон: {tone}")
+        lines.append("")
+
+    # Word breakdown
+    breakdown = result.get("word_breakdown", [])
+    if breakdown:
+        lines.append("📖 Разбор слов:")
+        for w in breakdown:
+            word = w.get("word", "")
+            wmean = w.get("meaning", "")
+            note = w.get("note", "")
+            slang = " (сленг)" if w.get("is_slang") else ""
+            line = f"  • {word}{slang} — {wmean}"
+            if note:
+                line += f" ({note})"
+            lines.append(line)
+        lines.append("")
+
+    # How to reply
+    replies = result.get("how_to_reply", [])
+    if replies:
+        lines.append("💬 Можно ответить:")
+        for r in replies:
+            lines.append(f"  → {r}")
+        lines.append("")
+
+    # Cultural note
+    cultural = result.get("cultural_note")
+    if cultural:
+        lines.append(f"🌍 {cultural}")
+        lines.append("")
+
+    lines.append(sep)
+
+    try:
+        await bot.send_message(chat_id=user_id, text="\n".join(lines))
+    except Exception as e:
+        logger.error(f"Failed to send meaning explanation: {e}")
 
 
 async def _full_check(
