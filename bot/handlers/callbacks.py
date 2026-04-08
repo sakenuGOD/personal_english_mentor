@@ -167,7 +167,7 @@ async def _show_vocab_page(target, user_id: int, page: int):
     from bot.services.vocabulary import get_vocab_stats, get_all_words
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-    per_page = 10
+    per_page = 8
     async with async_session() as session:
         stats = await get_vocab_stats(session, user_id)
         words = await get_all_words(session, user_id, limit=per_page, offset=page * per_page)
