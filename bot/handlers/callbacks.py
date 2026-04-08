@@ -177,20 +177,24 @@ async def _show_vocab_page(target, user_id: int, page: int):
     text = f"📚 Словарь: {stats['total']} слов\n"
     text += f"✅ Выучено: {stats['mastered']}  🔄 На повторение: {stats['due_today']}\n"
 
-    if words:
-        text += "\n"
-        for w in words:
-            box_emoji = "✅" if w.box >= 4 else f"📦{w.box}"
-            tr = w.translation.split("—")[0].split("/")[0].strip() if w.translation else "—"
-            if len(tr) > 25:
-                tr = tr[:25] + "…"
-            text += f"  {w.word} — {tr} {box_emoji}\n"
-    else:
+    if not words:
         text += "\nСловарь пуст.\n"
 
     rows = []
-    if stats['total'] > 0:
-        rows.append([InlineKeyboardButton(text="📝 Проверить себя", callback_data="vocab:quiz")])
+
+    # Word buttons — 2 per row, tap to see full card
+    if words:
+        text += "\nНажми на слово — покажу карточку:\n"
+        for i in range(0, len(words), 2):
+            row = []
+            for w in words[i:i+2]:
+                box_emoji = "✅" if w.box >= 4 else f"📦{w.box}"
+                row.append(InlineKeyboardButton(
+                    text=f"{w.word} {box_emoji}",
+                    callback_data=f"vocab:card:{w.id}",
+                ))
+            rows.append(row)
+
     # Pagination
     if total_pages > 1:
         nav = []
@@ -200,6 +204,8 @@ async def _show_vocab_page(target, user_id: int, page: int):
         if page < total_pages - 1:
             nav.append(InlineKeyboardButton(text="▶️", callback_data=f"vocab:page:{page+1}"))
         rows.append(nav)
+    if stats['total'] > 0:
+        rows.append([InlineKeyboardButton(text="📝 Проверить себя", callback_data="vocab:quiz")])
     rows.append([
         InlineKeyboardButton(text="🎲 Рандомное слово", callback_data="vocab:random_word"),
         InlineKeyboardButton(text="🔍 Найти слово", callback_data="vocab:find_word"),
@@ -215,6 +221,61 @@ async def cb_vocab_page(callback: CallbackQuery):
     page = int(callback.data.split(":")[-1])
     await callback.answer()
     await _show_vocab_page(callback.message, callback.from_user.id, page)
+
+
+@router.callback_query(F.data.startswith("vocab:card:"))
+async def cb_vocab_card(callback: CallbackQuery):
+    word_id = int(callback.data.split(":")[-1])
+    await callback.answer()
+
+    async with async_session() as session:
+        result = await session.execute(select(Vocabulary).where(Vocabulary.id == word_id))
+        w = result.scalar_one_or_none()
+
+    if not w:
+        await callback.message.answer("Слово не найдено.")
+        return
+
+    box_labels = {0: "новое", 1: "1 день", 2: "3 дня", 3: "7 дней", 4: "14 дней ✅", 5: "30 дней ✅"}
+    box_label = box_labels.get(w.box, f"📦{w.box}")
+    next_rev = w.next_review.strftime("%d.%m") if w.next_review else "—"
+
+    lines = [
+        f"📖 {w.word}",
+        f"📝 {w.translation or '—'}",
+    ]
+    if w.example:
+        lines.append(f"\n📌 {w.example}")
+    lines.append(f"\n📦 Уровень: {box_label}")
+    lines.append(f"🔄 Следующий повтор: {next_rev}")
+    lines.append(f"📊 Повторений: {w.times_reviewed} (верно: {w.times_correct})")
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"vocab:delete:{w.id}"),
+            InlineKeyboardButton(text="◀️ Назад", callback_data="progress:vocab"),
+        ],
+    ])
+    await callback.message.answer("\n".join(lines), reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("vocab:delete:"))
+async def cb_vocab_delete(callback: CallbackQuery):
+    word_id = int(callback.data.split(":")[-1])
+    await callback.answer()
+
+    async with async_session() as session:
+        result = await session.execute(select(Vocabulary).where(
+            Vocabulary.id == word_id, Vocabulary.user_id == callback.from_user.id
+        ))
+        w = result.scalar_one_or_none()
+        if w:
+            await session.delete(w)
+            await session.commit()
+            await callback.message.answer(f"🗑 «{w.word}» удалено.")
+        else:
+            await callback.message.answer("Слово не найдено.")
 
 
 # ─── Vocab Quiz (practice, no box change) ───
