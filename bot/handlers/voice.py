@@ -78,6 +78,78 @@ async def _process_voice(message: Message, bot: Bot, voice: Voice):
         os.unlink(tmp.name)
 
 
+async def _process_voice_to_dm(bot: Bot, user_id: int, voice: Voice, chat_name: str = ""):
+    """Download voice, transcribe, analyze, send result to user's DM. Used by business handler."""
+    file = await bot.get_file(voice.file_id)
+    tmp = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
+    try:
+        await bot.download_file(file.file_path, tmp.name)
+        tmp.close()
+
+        transcription = await transcribe_voice(tmp.name)
+        if not transcription:
+            await bot.send_message(chat_id=user_id, text="⚠️ Не удалось распознать речь.")
+            return
+
+        result = await ask_groq(MEANING_SYSTEM, transcription)
+
+        sep = "=" * 30
+        lines = [sep]
+        if chat_name:
+            lines.append(f"Чат {chat_name}")
+            lines.append("")
+        lines.append(f"🎤 Транскрипция:\n\"{transcription}\"")
+        lines.append("")
+
+        if not result:
+            lines.append("⚠️ Не удалось проанализировать.")
+            await bot.send_message(chat_id=user_id, text="\n".join(lines))
+            return
+
+        translation = result.get("translation", "")
+        if translation:
+            lines.append(f"📝 Перевод: {translation}")
+            lines.append("")
+
+        meaning = result.get("meaning")
+        if meaning:
+            lines.append(f"💡 Что имел ввиду: {meaning}")
+            lines.append("")
+
+        tone = result.get("tone", "")
+        if tone:
+            lines.append(f"🎭 Тон: {tone}")
+            lines.append("")
+
+        word_breakdown = result.get("word_breakdown", [])
+        if word_breakdown:
+            lines.append("📖 Разбор слов:")
+            for wb in word_breakdown:
+                word = wb.get("word", "")
+                wmean = wb.get("meaning", "")
+                is_slang = wb.get("is_slang", False)
+                note = wb.get("note")
+                slang_tag = " (сленг)" if is_slang else ""
+                line = f"  • {word}{slang_tag} — {wmean}"
+                if note:
+                    line += f" ({note})"
+                lines.append(line)
+            lines.append("")
+
+        replies = result.get("how_to_reply", [])
+        if replies:
+            lines.append("💬 Можно ответить:")
+            for r in replies[:3]:
+                lines.append(f"  → {r}")
+            lines.append("")
+
+        lines.append(sep)
+        await bot.send_message(chat_id=user_id, text="\n".join(lines))
+
+    finally:
+        os.unlink(tmp.name)
+
+
 @router.message(F.reply_to_message.voice)
 async def handle_reply_to_voice(message: Message, bot: Bot):
     """User replied to someone's voice message — transcribe and analyze it."""

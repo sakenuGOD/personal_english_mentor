@@ -110,12 +110,22 @@ async def handle_business_message(message: Message, bot: Bot):
 
     # If user replies "?" to a message in business chat
     if text in ("?", "/check", "check") and message.reply_to_message:
+        # Delete "?" immediately
+        await _delete_business_msg(bot, business_connection_id, message.message_id)
+
+        # ── Reply to VOICE message → transcribe and explain ──
+        if message.reply_to_message.voice:
+            logger.info(f"Reply voice transcribe from user {user_id}")
+            from bot.handlers.voice import _process_voice_to_dm
+            await _process_voice_to_dm(
+                bot, user_id, message.reply_to_message.voice,
+                chat_name=f"@{message.chat.username}" if message.chat.username else str(message.chat.id),
+            )
+            return
+
         reply_text = message.reply_to_message.text
         if not reply_text:
             return
-
-        # Delete "?" immediately
-        await _delete_business_msg(bot, business_connection_id, message.message_id)
 
         reply_from = message.reply_to_message.from_user
         is_own_message = reply_from and reply_from.id == user_id
