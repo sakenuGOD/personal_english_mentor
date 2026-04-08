@@ -88,10 +88,9 @@ def format_chat_correction(corrections: list[dict], corrected_full: str = "") ->
 
 def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> list[str]:
     """Format corrections into pages (list of strings). Each correction = 1 page."""
-    pages = []
-
-    # Page 1: overview (original → corrected)
     sep = "=" * 30
+
+    # Page 1: compact overview
     p1 = [sep]
     if chat_name:
         p1.append(f"Чат {chat_name}")
@@ -104,41 +103,37 @@ def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> 
     if corrected_full:
         p1.append(f'✅ {corrected_full}')
 
-    p1.append("")
-    for c in corrections:
-        original = c.get("original", "")
-        corrected = c.get("corrected", "")
-        p1.append(f"  • {original}  →  {corrected}")
+    if len(corrections) > 1:
+        p1.append(f"\n{len(corrections)} ошибок — листай ▶️")
     p1.append(sep)
-    pages.append("\n".join(p1))
 
-    # One page per correction with detailed explanation
+    pages = ["\n".join(p1)]
+
+    # One page per correction — ALWAYS
     for i, c in enumerate(corrections):
         explanation = c.get("detailed_explanation", "")
         rule = c.get("rule_name", "")
         when = c.get("when_to_use", "")
         formula = c.get("formula", "")
+        short = c.get("short_explanation", "")
         original = c.get("original", "")
         corrected = c.get("corrected", "")
 
-        if not explanation and not rule:
-            continue
-
-        lines = [sep]
-        lines.append(f"❌ {original}  →  ✅ {corrected}")
-        lines.append("")
-
-        if explanation:
-            lines.append(explanation)
+        lines = [f"❌ {original}  →  ✅ {corrected}"]
 
         if rule:
             lines.append(f"\n📐 {rule}")
         if formula:
             lines.append(f"✏️ {formula}")
+
+        if explanation:
+            lines.append(f"\n{explanation}")
+        elif short:
+            lines.append(f"\n{short}")
+
         if when:
             lines.append(f"\n⏰ {when}")
 
-        lines.append(sep)
         pages.append("\n".join(lines))
 
     return pages
