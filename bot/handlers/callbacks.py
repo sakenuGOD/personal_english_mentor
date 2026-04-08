@@ -361,16 +361,17 @@ async def cb_random_word(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer("⏳ Подбираю слово...")
 
-    # Get existing words to avoid duplicates
+    # Get recent words to hint GPT, full check via DB after
     async with async_session() as session:
         existing = await session.execute(
             select(Vocabulary.word).where(Vocabulary.user_id == callback.from_user.id)
+            .order_by(Vocabulary.created_at.desc()).limit(30)
         )
-        existing_words = [r[0] for r in existing.all()]
+        recent_words = [r[0] for r in existing.all()]
 
     avoid = ""
-    if existing_words:
-        avoid = f"\n\nDo NOT use these words (already in student's vocabulary): {', '.join(existing_words[:30])}"
+    if recent_words:
+        avoid = f"\n\nAvoid these words: {', '.join(recent_words)}"
 
     from bot.services.groq_client import ask_groq
     result = await ask_groq(
