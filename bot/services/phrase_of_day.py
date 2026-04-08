@@ -10,13 +10,24 @@ logger = logging.getLogger(__name__)
 # Cache last phrase per user for vocab save: {user_id: {"phrase": ..., "translation": ...}}
 _phrase_cache: dict[int, dict] = {}
 
+# Recent phrases to avoid repeats (global, keeps last 30)
+_recent_phrases: list[str] = []
+MAX_RECENT = 30
+
 
 async def generate_phrase_of_day(topic: str = "general") -> dict | None:
     topic_hint = f"Topic context: {topic}." if topic != "general" else ""
+    avoid = ""
+    if _recent_phrases:
+        avoid = f"\n\nDo NOT use these phrases (already sent recently): {', '.join(_recent_phrases[-15:])}"
     result = await ask_groq(
         PHRASE_OF_DAY_SYSTEM,
-        f"{topic_hint} Generate a fresh, practical idiom or colloquial phrase.",
+        f"{topic_hint} Generate a fresh, practical idiom or colloquial phrase.{avoid}",
     )
+    if result and result.get("phrase"):
+        _recent_phrases.append(result["phrase"])
+        if len(_recent_phrases) > MAX_RECENT:
+            _recent_phrases.pop(0)
     return result
 
 

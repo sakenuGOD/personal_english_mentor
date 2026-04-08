@@ -1903,82 +1903,33 @@ class DailyChallengeStates(StatesGroup):
 
 @router.callback_query(F.data == "workout:daily_challenge")
 async def cb_daily_challenge(callback: CallbackQuery, state: FSMContext):
-    from datetime import date
-    from bot.services.groq_client import ask_groq
-    from bot.utils.prompts import DAILY_CHALLENGE_SYSTEM
-    from bot.db.models import Error
-    from sqlalchemy import func
-
     await callback.answer()
     user_id = callback.from_user.id
 
-    async with async_session() as session:
-        result = await session.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-
-    # Check if already done today
-    today = date.today()
-    if user and user.challenge_last_sent and user.challenge_last_sent >= today:
+    # Check if challenge data is stored from scheduler
+    challenge = getattr(callback.bot, "_daily_challenges", {}).get(user_id)
+    if not challenge:
         await callback.message.answer(
             "✅ Задание дня уже выполнено!\n\nВозвращайся завтра за новым заданием."
         )
         return
 
-    await callback.message.answer("⏳ Генерирую задание дня...")
-
-    # Get user's weak categories to focus on
-    async with async_session() as session:
-        top_cats = (await session.execute(
-            select(Error.category, func.count(Error.id))
-            .where(Error.user_id == user_id)
-            .group_by(Error.category)
-            .order_by(func.count(Error.id).desc())
-            .limit(3)
-        )).all()
-
-    weak_hint = ""
-    if top_cats:
-        cats = ", ".join(c for c, _ in top_cats)
-        weak_hint = f"Focus on the student's weak areas: {cats}"
-
-    result = await ask_groq(DAILY_CHALLENGE_SYSTEM, weak_hint or "General grammar challenge")
-
-    if not result:
-        await callback.message.answer("⚠️ Не удалось создать задание. Попробуй позже.")
-        return
-
-    sentence = result.get("sentence", "")
-    options = result.get("options", [])
-    answer = result.get("answer", "")
-    rule_name = result.get("rule_name", "")
-
-    if not sentence or not options or not answer:
-        await callback.message.answer("⚠️ Не удалось создать задание. Попробуй позже.")
-        return
-
     await state.set_state(DailyChallengeStates.answering)
     await state.update_data(
-        challenge_answer=answer,
-        challenge_sentence=sentence,
-        challenge_options=options,
-        challenge_explanation=result.get("explanation", ""),
-        challenge_rule=rule_name,
+        challenge_answer=challenge["answer"],
+        challenge_sentence=challenge["sentence"],
+        challenge_options=challenge["options"],
+        challenge_explanation=challenge.get("explanation", ""),
+        challenge_rule=challenge.get("rule", ""),
     )
 
-    lines = [
-        "🌅 Задание дня\n",
-        sentence,
-        "",
-    ]
-    for i, opt in enumerate(options, 1):
-        lines.append(f"  {i}. {opt}")
-    lines.append("\n(напиши номер или сам ответ)")
-
+    # Remove "Ответить" button, show "Показать ответ"
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     skip_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭ Показать ответ", callback_data="challenge:skip")],
     ])
-    await callback.message.answer("\n".join(lines), reply_markup=skip_kb)
+    await callback.message.edit_reply_markup(reply_markup=skip_kb)
+    await callback.message.answer("Напиши номер или сам ответ:")
 
 
 @router.message(DailyChallengeStates.answering)
@@ -1992,6 +1943,8 @@ async def cb_challenge_answer(message: Message, state: FSMContext):
     user_text = message.text.strip()
     options = data.get("challenge_options", [])
 
+    from bot.handlers.workout import _normalize_answer
+
     # Map number to option
     if user_text.isdigit():
         n = int(user_text) - 1
@@ -1999,7 +1952,9 @@ async def cb_challenge_answer(message: Message, state: FSMContext):
     else:
         user_answer = user_text.lower()
 
-    is_correct = user_answer == answer.lower() or answer.lower() in user_answer
+    user_norm = _normalize_answer(user_answer)
+    correct_norm = _normalize_answer(answer)
+    is_correct = user_norm == correct_norm or correct_norm in user_norm or user_norm in correct_norm
 
     await state.clear()
     await _finish_challenge(message, is_correct, answer, explanation, rule, message.from_user.id)
@@ -2020,29 +1975,33 @@ async def cb_challenge_skip(callback: CallbackQuery, state: FSMContext):
 
 async def _finish_challenge(target, is_correct: bool, answer: str, explanation: str, rule: str, user_id: int):
     from datetime import date
-    from sqlalchemy import update as sa_update
 
     lines = []
     if is_correct:
-        lines.append(f"✅ Правильно! +30 XP")
+        lines.append("✅ Правильно! +30 XP")
         xp = 30
     else:
         lines.append(f"❌ Ответ: {answer}")
-        xp = 5  # small consolation XP
-    lines.append("")
+        xp = 5
+
     if rule:
-        lines.append(f"📌 {rule}")
+        lines.append(f"\n📐 {rule}")
     if explanation:
-        lines.append("")
-        lines.append(explanation)
+        lines.append(f"\n{explanation}")
 
     async with async_session() as session:
         await add_xp(session, user_id, xp, "daily_challenge")
-        if is_correct:
-            await session.execute(
-                update(User).where(User.id == user_id).values(challenge_last_sent=date.today())
-            )
-            await session.commit()
+        await session.commit()
+
+    # Clear stored challenge so button shows "already done"
+    challenges = getattr(target, "_daily_challenges", None)
+    if challenges is None:
+        # target is Message, try bot
+        try:
+            challenges = getattr(target.bot, "_daily_challenges", {})
+        except Exception:
+            challenges = {}
+    challenges.pop(user_id, None)
 
     await target.answer("\n".join(lines))
 

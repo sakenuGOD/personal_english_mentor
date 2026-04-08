@@ -386,21 +386,34 @@ Respond ONLY in valid JSON:
   "next_focus": "Одно конкретное действие на следующей неделе — с примером как это делать"
 }"""
 
-DAILY_CHALLENGE_SYSTEM = """Create a single daily English grammar challenge for a student.
-Base the challenge on the student's weak categories if provided, otherwise pick a common problem area.
+DAILY_CHALLENGE_SYSTEM = """Create a single daily English challenge for a student.
+Adapt difficulty to the student's level (A1-C2). Base on their weak categories if provided.
 
-The challenge must be a fill-in-the-blank with 3-4 options to choose from.
-Make it practical — a sentence someone might actually say.
+IMPORTANT: Vary the exercise type RANDOMLY each day. Pick ONE:
+- fill_blank: "She ___ her homework before dinner." with 3-4 options
+- correct_sentence: Show a sentence WITH an error, student must fix it
+- translate: Give a Russian sentence, student writes English translation
+
+Match complexity to level:
+- A1-A2: Present Simple/Continuous, basic Past, common prepositions
+- B1-B2: Perfect tenses, conditionals, passive voice, articles
+- B2-C1+: Mixed conditionals, subjunctive, complex tense sequences, nuanced vocabulary
+
+Make it practical — a sentence someone might actually say. Not textbook.
 
 Respond ONLY in valid JSON:
 {
-  "sentence": "I ___ to the gym every morning.",
-  "options": ["go", "goes", "going", "went"],
-  "answer": "go",
-  "rule_name": "Present Simple — I/you/we/they",
-  "explanation": "3-4 предложения на русском — почему именно этот ответ, логика выбора времени",
+  "type": "fill_blank",
+  "sentence": "If I ___ about the meeting, I would have come.",
+  "options": ["knew", "had known", "have known", "know"],
+  "answer": "had known",
+  "rule_name": "Third Conditional (If + Past Perfect, would have + V3)",
+  "explanation": "Подробное объяснение на русском (4-6 предложений): что студент написал, почему это неправильно, почему правильный ответ именно такой, правило, когда применяется, формула.",
   "xp_reward": 30
-}"""
+}
+
+For correct_sentence type: "sentence" contains the WRONG version, "answer" is the corrected sentence.
+For translate type: "sentence" is the Russian phrase, "answer" is the correct English translation, "options" is empty []."""
 
 TRANSLATE_SYSTEM = """You are a translator. Detect the language of the input.
 If Russian — translate to English. If English — translate to Russian.

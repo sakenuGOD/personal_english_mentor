@@ -114,9 +114,13 @@ async def _check_daily_challenge(bot, now: datetime):
             weak_hint = ""
             if top_cats:
                 cats = ", ".join(c for c, _ in top_cats)
-                weak_hint = f"Focus on: {cats}"
+                weak_hint = f"Focus on the student's weak areas: {cats}"
 
-            result = await ask_groq(DAILY_CHALLENGE_SYSTEM, weak_hint or "General grammar")
+            level = user.level or "B1"
+            result = await ask_groq(
+                DAILY_CHALLENGE_SYSTEM,
+                f"Student level: {level}. {weak_hint or 'General grammar'}",
+            )
             if not result:
                 continue
 
@@ -128,10 +132,33 @@ async def _check_daily_challenge(bot, now: datetime):
             if not sentence or not options or not answer:
                 continue
 
-            lines = ["🌅 Задание дня\n", sentence, ""]
-            for i, opt in enumerate(options, 1):
-                lines.append(f"  {i}. {opt}")
-            lines.append("\n(напиши номер или ответ)")
+            # Store challenge data for "Ответить" button
+            if not hasattr(bot, "_daily_challenges"):
+                bot._daily_challenges = {}
+            bot._daily_challenges[user.id] = {
+                "answer": answer,
+                "options": options,
+                "sentence": sentence,
+                "explanation": result.get("explanation", ""),
+                "rule": rule_name,
+            }
+
+            challenge_type = result.get("type", "fill_blank")
+            lines = ["🌅 Задание дня\n"]
+            if challenge_type == "correct_sentence":
+                lines.append("Исправь ошибку:\n")
+                lines.append(sentence)
+                lines.append("\n(напиши исправленное предложение)")
+            elif challenge_type == "translate":
+                lines.append("🇷🇺→🇬🇧 Переведи:\n")
+                lines.append(f'"{sentence}"')
+                lines.append("\n(напиши перевод)")
+            else:
+                lines.append(sentence)
+                lines.append("")
+                for i, opt in enumerate(options, 1):
+                    lines.append(f"  {i}. {opt}")
+                lines.append("\n(напиши номер или ответ)")
 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
             kb = InlineKeyboardMarkup(inline_keyboard=[
