@@ -361,6 +361,17 @@ async def cb_random_word(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer("⏳ Подбираю слово...")
 
+    # Get existing words to avoid duplicates
+    async with async_session() as session:
+        existing = await session.execute(
+            select(Vocabulary.word).where(Vocabulary.user_id == callback.from_user.id)
+        )
+        existing_words = [r[0] for r in existing.all()]
+
+    avoid = ""
+    if existing_words:
+        avoid = f"\n\nDo NOT use these words (already in student's vocabulary): {', '.join(existing_words[:30])}"
+
     from bot.services.groq_client import ask_groq
     result = await ask_groq(
         "Generate one uncommon but useful English word. NOT basic words (like happy, big, fast). "
@@ -372,7 +383,7 @@ async def cb_random_word(callback: CallbackQuery):
         '"meaning":"объяснение значения на русском, 1-2 предложения, на ты",'
         '"examples":["пример 1 на английском","пример 2"],'
         '"usage_note":"когда и как использовать — на русском, 1 предложение"}',
-        "Generate a random interesting word."
+        f"Generate a random interesting word.{avoid}"
     )
     if not result:
         await callback.message.answer("⚠️ Не удалось.")
@@ -394,8 +405,15 @@ async def cb_random_word(callback: CallbackQuery):
     if note:
         lines.append(f"\n💡 {note}")
 
-    from bot.keyboards.inline import word_result_keyboard
-    await callback.message.answer("\n".join(lines), reply_markup=word_result_keyboard(w))
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"➕ В словарь", callback_data=f"word:add:{w}")],
+        [
+            InlineKeyboardButton(text="🎲 Ещё", callback_data="vocab:random_word"),
+            InlineKeyboardButton(text="◀️ Словарь", callback_data="progress:vocab"),
+        ],
+    ])
+    await callback.message.answer("\n".join(lines), reply_markup=kb)
 
 
 @router.callback_query(F.data == "vocab:find_word")
