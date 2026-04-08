@@ -148,17 +148,15 @@ async def handle_business_message(message: Message, bot: Bot):
             await _explain_message(reply_text, user_id, message.chat, bot)
         return
 
-    # Skip short messages
-    if len(text) < 3 or len(text.split()) < 3:
+    # Skip very short / non-English / common phrases
+    if len(text) < 3:
         return
-
-    # Skip common short phrases
     if text.lower().strip("!?.,") in SKIP_PHRASES:
         return
-
-    # Skip if any Cyrillic character present — not English, don't check
     if any('\u0400' <= c <= '\u04FF' for c in text):
         return
+
+    word_count = len(text.split())
 
     # Get user settings
     async with async_session() as session:
@@ -173,12 +171,25 @@ async def handle_business_message(message: Message, bot: Bot):
 
     mode = user.correction_mode if user else "balanced"
 
-    # Save to daily buffer for end-of-day analysis (no GPT, just accumulate)
+    # Save to daily buffer (always, even short messages)
     async with async_session() as session:
         session.add(DailyMessageBuffer(user_id=user_id, text=text))
         await session.commit()
 
-    # === STEP 1: Free LLM detects errors (every message) ===
+    # Short messages (1-3 words) → only local LanguageTool, no API
+    if word_count < 4:
+        has_local = await local_has_errors(text)
+        if not has_local:
+            async with async_session() as session:
+                await update_streak(session, user_id)
+                await save_message(session, user_id, message.chat.id, False, 0)
+                await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
+                await session.commit()
+            return
+        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+        return
+
+    # === 4+ words: Free LLM detects errors ===
     from bot.services.free_llm import both_exhausted
     detection = None
     if not both_exhausted():
