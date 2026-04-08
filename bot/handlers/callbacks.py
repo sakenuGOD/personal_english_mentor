@@ -139,10 +139,8 @@ async def cb_word_add(callback: CallbackQuery):
 @router.callback_query(F.data == "progress:back")
 async def cb_progress_back(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    from bot.services.stats import get_user_stats, format_stats
-    async with async_session() as session:
-        stats = await get_user_stats(session, callback.from_user.id)
-    await callback.message.answer(format_stats(stats), reply_markup=progress_keyboard())
+    await state.clear()
+    await callback.message.answer("📊 Прогресс:", reply_markup=progress_keyboard())
 
 
 @router.callback_query(F.data == "progress:vocab")
@@ -1596,6 +1594,38 @@ async def cb_mistakes_practice_repeated(callback: CallbackQuery, state: FSMConte
     await state.update_data(questions=questions, current_q=0, correct=0,
                             topic_title=f"Повторяющиеся ошибки ({level})", final_summary=summary)
     await _send_topic_question(callback.message, state)
+
+
+# ─── Idioms on demand ───
+@router.callback_query(F.data == "progress:idioms")
+async def cb_idioms(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("⏳ Подбираю фразу...")
+
+    from bot.services.phrase_of_day import generate_phrase_of_day, format_phrase_message, cache_phrase
+
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.id == callback.from_user.id))
+        user = result.scalar_one_or_none()
+    topic = user.topic_pack if user else "general"
+
+    phrase = await generate_phrase_of_day(topic)
+    if not phrase:
+        await callback.message.answer("⚠️ Не удалось сгенерировать. Попробуй ещё раз.")
+        return
+
+    cache_phrase(callback.from_user.id, phrase)
+    text = format_phrase_message(phrase)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ В словарь", callback_data="vocab:phrase_save")],
+        [
+            InlineKeyboardButton(text="🔄 Ещё", callback_data="progress:idioms"),
+            InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back"),
+        ],
+    ])
+    await callback.message.answer(text, reply_markup=kb)
 
 
 # ─── Grammar Map ───

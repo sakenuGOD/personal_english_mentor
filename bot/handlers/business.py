@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from bot.db.database import async_session
 from bot.db.models import User, DailyMessageBuffer
 from bot.services.grammar import (
-    check_grammar, save_error, save_message,
+    check_grammar, check_grammar_free, save_error, save_message,
     format_chat_correction, format_detailed_correction,
 )
 from bot.services.local_grammar import has_errors as local_has_errors
@@ -140,7 +140,7 @@ async def handle_business_message(message: Message, bot: Bot):
             await _full_check(reply_text, user_id, message.chat.id, m, bot,
                               message=message.reply_to_message,
                               business_connection_id=business_connection_id,
-                              reaction_check=True)
+                              reaction_check=True, use_free=True)
         else:
             # ── "?" on PARTNER's message → explain what they meant ──
             logger.info(f"Reply meaning check from user {user_id}: '{reply_text[:50]}'")
@@ -195,8 +195,8 @@ async def handle_business_message(message: Message, bot: Bot):
                 logger.warning(f"Failed to send achievement: {e}")
         return
 
-    # === LOCAL FOUND ERRORS → send to GPT for detailed explanation ===
-    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+    # === LOCAL FOUND ERRORS → try free API first, fall back to paid ===
+    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, use_free=True)
 
 
 async def _explain_message(text: str, user_id: int, chat, bot: Bot):
@@ -289,9 +289,19 @@ async def _full_check(
     bot: Bot, message: Message | None = None,
     business_connection_id: str | None = None,
     reaction_check: bool = False,
+    use_free: bool = False,
 ):
     """Full GPT check — called for errors or reaction-triggered checks."""
-    result = await check_grammar(text, mode)
+    result = None
+    if use_free:
+        result = await check_grammar_free(text, mode)
+        if result is None:
+            # Free APIs exhausted, check if we should notify user
+            from bot.services.free_llm import both_exhausted
+            if both_exhausted():
+                logger.info(f"Both free APIs exhausted, falling back to paid for user {user_id}")
+    if result is None:
+        result = await check_grammar(text, mode)
     logger.info(f"Grammar check: has_errors={result.get('has_errors') if result else None}")
     if result is None:
         return
@@ -446,6 +456,6 @@ async def handle_reaction(event: MessageReactionUpdated, bot: Bot):
     mode = user.correction_mode if user else "balanced"
 
     logger.info(f"Reaction check from user {user_id}")
-    await _full_check(text, user_id, chat_id, mode, bot, reaction_check=True)
+    await _full_check(text, user_id, chat_id, mode, bot, reaction_check=True, use_free=True)
 
 

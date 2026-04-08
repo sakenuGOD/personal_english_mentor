@@ -18,6 +18,13 @@ async def check_grammar(text: str, mode: str = "balanced", api_key: str | None =
     return await ask_groq(AUTOCORRECT_SYSTEM, user_msg, api_key=api_key)
 
 
+async def check_grammar_free(text: str, mode: str = "balanced") -> dict | None:
+    """Check grammar using free APIs (Groq → Gemini fallback). Returns None if both exhausted."""
+    from bot.services.free_llm import ask_free_llm
+    user_msg = AUTOCORRECT_USER.format(mode=mode, text=text)
+    return await ask_free_llm(AUTOCORRECT_SYSTEM, user_msg)
+
+
 
 async def save_error(
     session: AsyncSession,

@@ -75,6 +75,7 @@ def progress_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🗺 Грамматика", callback_data="progress:grammar_map"),
             InlineKeyboardButton(text="📊 Статистика", callback_data="progress:stats"),
         ],
+        [InlineKeyboardButton(text="📖 Идиомы", callback_data="progress:idioms")],
         [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
     ])
 

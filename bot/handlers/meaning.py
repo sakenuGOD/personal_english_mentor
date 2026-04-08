@@ -12,7 +12,7 @@ from bot.db.database import async_session
 from bot.db.models import User
 from bot.services.groq_client import ask_groq
 from bot.utils.prompts import MEANING_SYSTEM, get_topic_hint
-from bot.keyboards.inline import meaning_result_keyboard
+from bot.keyboards.inline import meaning_result_keyboard, explain_save_keyboard
 router = Router()
 logger = logging.getLogger(__name__)
 
@@ -99,4 +99,22 @@ async def process_meaning(message: Message, state: FSMContext):
         lines.append(f"🌍 {cultural}")
 
     await state.clear()
-    await message.answer("\n".join(lines), reply_markup=meaning_result_keyboard())
+
+    # Build keyboard with word save buttons + navigation
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rows = []
+    if word_breakdown:
+        # Cache breakdown for vocab save callback
+        from bot.handlers.business import _explain_cache
+        _explain_cache[message.from_user.id] = word_breakdown
+        for i, wb in enumerate(word_breakdown[:5]):
+            w = wb.get("word", "")
+            if w:
+                rows.append([InlineKeyboardButton(text=f"➕ {w}", callback_data=f"vocab:explain_save:{i}")])
+    rows.append([
+        InlineKeyboardButton(text="🔄 Ещё фразу", callback_data="meaning:another"),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    await message.answer("\n".join(lines), reply_markup=kb)
