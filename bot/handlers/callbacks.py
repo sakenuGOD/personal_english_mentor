@@ -125,8 +125,22 @@ async def cb_meaning_another(callback: CallbackQuery, state: FSMContext):
 async def cb_word_add(callback: CallbackQuery):
     word = callback.data.split(":", 2)[2]
     user_id = callback.from_user.id
+
+    # Auto-translate if no translation provided
+    translation = ""
+    try:
+        from bot.services.groq_client import ask_groq_text
+        translation = await ask_groq_text(
+            "Translate this English word/phrase to Russian. Reply with ONLY the translation, nothing else. "
+            "If it's a rare/unusual word, give a short explanation too (max 5 words).",
+            word
+        ) or ""
+        translation = translation.strip().strip('"')
+    except Exception:
+        pass
+
     async with async_session() as session:
-        result = await add_word(session, user_id, word, "", "")
+        result = await add_word(session, user_id, word, translation, "")
     if result:
         async with async_session() as session:
             await add_xp(session, user_id, XP_NEW_WORD, "word_added")
