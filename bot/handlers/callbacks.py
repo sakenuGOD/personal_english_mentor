@@ -146,25 +146,33 @@ async def cb_progress_back(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "progress:vocab")
 async def cb_progress_vocab(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    from bot.services.vocabulary import get_vocab_stats
+    from bot.services.vocabulary import get_vocab_stats, get_all_words
 
     async with async_session() as session:
         stats = await get_vocab_stats(session, callback.from_user.id)
+        words = await get_all_words(session, callback.from_user.id, limit=10)
 
-    text = (
-        f"📚 Словарь:\n\n"
-        f"📖 Всего: {stats['total']}  ✅ Выучено: {stats['mastered']}  🔄 На повторение: {stats['due_today']}\n"
-    )
+    text = f"📚 Словарь: {stats['total']} слов\n\n"
+    text += f"✅ Выучено: {stats['mastered']}  🔄 На повторение: {stats['due_today']}\n"
 
-    if stats['due_today'] > 0:
-        await callback.message.answer(text)
-        await _send_vocab_card(callback.message, state, callback.from_user.id)
+    if words:
+        text += "\n📖 Последние слова:\n"
+        for w in words:
+            box_emoji = "✅" if w.box >= 4 else f"📦{w.box}"
+            text += f"  • {w.word} — {w.translation}  {box_emoji}\n"
+        if stats['total'] > 10:
+            text += f"  ... и ещё {stats['total'] - 10}\n"
     else:
-        if stats['total'] == 0:
-            text += "\nСловарь пуст. Добавляй через 💡 Слово → ➕ В словарь"
-        else:
-            text += "\n✅ Все повторены!"
-        await callback.message.answer(text)
+        text += "\nСловарь пуст. Добавляй слова через 🤔 Что имел ввиду → ➕\n"
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rows = []
+    if stats['due_today'] > 0:
+        rows.append([InlineKeyboardButton(text=f"🔄 Повторить ({stats['due_today']})", callback_data="vocab:start_review")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    await callback.message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(F.data == "progress:mistakes")

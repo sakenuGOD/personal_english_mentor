@@ -287,11 +287,13 @@ Respond ONLY in valid JSON. No markdown, no backticks, no extra text.
   "overall_comment": "Прямой вердикт: что не умеет, что учить. Без похвалы."
 }"""
 
-PHRASE_OF_DAY_SYSTEM = """Generate one English phrase for a daily lesson.
+PHRASE_OF_DAY_SYSTEM = """Generate one English phrase for a daily lesson. Pick something RANDOM and UNEXPECTED every time.
 
-Vary the type randomly — roughly 40% idioms used by real Americans in daily speech, 40% modern slang/informal expressions (Gen Z, social media, texting — things like "no cap", "it's giving", "lowkey", "slay", "rent free", "ghosted", "situationship"), 20% practical workplace/casual phrases.
+Vary the type randomly — roughly 40% idioms used by real Americans in daily speech, 40% modern slang/informal expressions (Gen Z, social media, texting — things like "no cap", "it's giving", "lowkey", "slay", "rent free", "ghosted", "situationship", "delulu", "main character energy", "understood the assignment"), 20% practical workplace/casual phrases.
 
-Avoid clichés like "break a leg", "piece of cake", "raining cats and dogs". Pick phrases that real people ACTUALLY say today.
+BANNED phrases (never generate these): "hit the ground running", "break a leg", "piece of cake", "raining cats and dogs", "cost an arm and a leg", "bite the bullet", "the ball is in your court", "barking up the wrong tree". These are overused textbook idioms.
+
+Be creative. Pick obscure but useful phrases real Americans use daily. Surprise the student.
 
 For slang entries: skip the "origin" field (set to null), explain what context teens/young adults use it in.
 

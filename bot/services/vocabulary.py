@@ -73,6 +73,16 @@ async def review_word(session: AsyncSession, word_id: int, remembered: bool):
     await session.commit()
 
 
+async def get_all_words(session: AsyncSession, user_id: int, limit: int = 10) -> list[Vocabulary]:
+    result = await session.execute(
+        select(Vocabulary)
+        .where(Vocabulary.user_id == user_id)
+        .order_by(Vocabulary.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def get_vocab_stats(session: AsyncSession, user_id: int) -> dict:
     result = await session.execute(
         select(Vocabulary).where(Vocabulary.user_id == user_id)
