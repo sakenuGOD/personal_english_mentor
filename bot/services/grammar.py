@@ -86,57 +86,59 @@ def format_chat_correction(corrections: list[dict], corrected_full: str = "") ->
     return "*" + ", ".join(parts)
 
 
-def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> str:
-    sep = "=" * 30
-    lines = [sep]
-    if chat_name:
-        lines.append(f"Чат {chat_name}")
+def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> list[str]:
+    """Format corrections into pages (list of strings). Each correction = 1 page."""
+    pages = []
 
-    # Original sentence
+    # Page 1: overview (original → corrected)
+    sep = "=" * 30
+    p1 = [sep]
+    if chat_name:
+        p1.append(f"Чат {chat_name}")
+
     full = corrections[0].get("full_sentence", "") if corrections else ""
     if full:
-        lines.append(f'\n❌ {full}')
+        p1.append(f'\n❌ {full}')
 
-    # Corrected full sentence
     corrected_full = corrections[0].get("corrected_full", "") if corrections else ""
     if corrected_full:
-        lines.append(f'✅ {corrected_full}')
+        p1.append(f'✅ {corrected_full}')
 
-    # Show each correction
-    lines.append("")
+    p1.append("")
     for c in corrections:
         original = c.get("original", "")
         corrected = c.get("corrected", "")
-        lines.append(f"  • {original}  →  {corrected}")
+        p1.append(f"  • {original}  →  {corrected}")
+    p1.append(sep)
+    pages.append("\n".join(p1))
 
-    lines.append("")
-
-    # Explanation
-    lines.append(f"{'─' * 20}")
-    lines.append("📖 Разбор")
-    lines.append("")
-    for c in corrections:
+    # One page per correction with detailed explanation
+    for i, c in enumerate(corrections):
         explanation = c.get("detailed_explanation", "")
-        if explanation:
-            lines.append(explanation)
-            lines.append("")
+        rule = c.get("rule_name", "")
+        when = c.get("when_to_use", "")
+        formula = c.get("formula", "")
+        original = c.get("original", "")
+        corrected = c.get("corrected", "")
 
-    # Rule & when to use
-    rule = corrections[0].get("rule_name", "") if corrections else ""
-    if rule:
-        lines.append(f"{'─' * 20}")
-        lines.append(f"📏 Правило: {rule}")
+        if not explanation and not rule:
+            continue
+
+        lines = [sep]
+        lines.append(f"❌ {original}  →  ✅ {corrected}")
         lines.append("")
 
-        when = corrections[0].get("when_to_use", "")
-        if when:
-            lines.append(f"⏰ Когда: {when}")
-            lines.append("")
+        if explanation:
+            lines.append(explanation)
 
-        formula = corrections[0].get("formula", "")
+        if rule:
+            lines.append(f"\n📐 {rule}")
         if formula:
-            lines.append(f"🔢 Формула: {formula}")
-            lines.append("")
+            lines.append(f"✏️ {formula}")
+        if when:
+            lines.append(f"\n⏰ {when}")
 
-    lines.append(sep)
-    return "\n".join(lines)
+        lines.append(sep)
+        pages.append("\n".join(lines))
+
+    return pages

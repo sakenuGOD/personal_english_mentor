@@ -2225,6 +2225,28 @@ async def cb_phrase_vocab_save(callback: CallbackQuery):
         await callback.answer(f"'{word}' уже в словаре")
 
 
+# ─── Correction page navigation ───
+@router.callback_query(F.data.startswith("corr:page:"))
+async def cb_correction_page(callback: CallbackQuery):
+    page = int(callback.data.split(":")[-1])
+    await callback.answer()
+    pages = getattr(callback.bot, "_correction_pages", {}).get(callback.from_user.id, [])
+    if not pages or page >= len(pages):
+        return
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"corr:page:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{len(pages)}", callback_data="noop"))
+    if page < len(pages) - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"corr:page:{page+1}"))
+    kb = InlineKeyboardMarkup(inline_keyboard=[nav])
+    try:
+        await callback.message.edit_text(pages[page], reply_markup=kb)
+    except Exception:
+        await callback.message.answer(pages[page], reply_markup=kb)
+
+
 # ─── Vocab save from explain breakdown ───
 @router.callback_query(F.data.startswith("vocab:explain_save:"))
 async def cb_explain_vocab_save(callback: CallbackQuery):

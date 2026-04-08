@@ -389,14 +389,38 @@ async def _full_check(
     chat_name = f"@{message.chat.username}" if message and message.chat.username else str(chat_id)
 
     if corrections:
-        detailed = format_detailed_correction(corrections, chat_name)
-        # Offer to save the key corrected word/form to vocabulary
+        pages = format_detailed_correction(corrections, chat_name)
         from bot.keyboards.inline import correction_vocab_keyboard
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         key_word = corrections[0].get("corrected", "").strip()[:40]
-        markup = correction_vocab_keyboard(key_word) if key_word else None
-        try:
-            await bot.send_message(chat_id=user_id, text=detailed, reply_markup=markup)
-        except Exception as e:
+
+        if len(pages) == 1:
+            markup = correction_vocab_keyboard(key_word) if key_word else None
+            try:
+                await bot.send_message(chat_id=user_id, text=pages[0], reply_markup=markup)
+            except Exception as e:
+                logger.error(f"Failed to send DM correction: {e}")
+        else:
+            # Store pages for navigation
+            if not hasattr(bot, "_correction_pages"):
+                bot._correction_pages = {}
+            bot._correction_pages[user_id] = pages
+
+            def corr_kb(page, total):
+                nav = []
+                if page > 0:
+                    nav.append(InlineKeyboardButton(text="◀️", callback_data=f"corr:page:{page-1}"))
+                nav.append(InlineKeyboardButton(text=f"{page+1}/{total}", callback_data="noop"))
+                if page < total - 1:
+                    nav.append(InlineKeyboardButton(text="▶️", callback_data=f"corr:page:{page+1}"))
+                rows = [nav]
+                if page == 0 and key_word:
+                    rows.append([InlineKeyboardButton(text=f"➕ {key_word}", callback_data=f"vocab:correction_save:{key_word}")])
+                return InlineKeyboardMarkup(inline_keyboard=rows)
+
+            try:
+                await bot.send_message(chat_id=user_id, text=pages[0], reply_markup=corr_kb(0, len(pages)))
+            except Exception as e:
             logger.error(f"Failed to send DM correction: {e}")
 
     # Native tip — ONLY when no grammar corrections found
