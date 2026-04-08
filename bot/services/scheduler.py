@@ -138,6 +138,14 @@ async def _check_daily_challenge(bot, now: datetime):
                 [InlineKeyboardButton(text="📝 Ответить", callback_data="workout:daily_challenge")],
             ])
             await bot.send_message(chat_id=user.id, text="\n".join(lines), reply_markup=kb)
+
+            # Mark as sent today
+            async with async_session() as session:
+                await session.execute(
+                    update(User).where(User.id == user.id).values(challenge_last_sent=today)
+                )
+                await session.commit()
+
             logger.info(f"Sent daily challenge to user {user.id}")
 
         except Exception as e:
