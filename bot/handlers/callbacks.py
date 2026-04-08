@@ -167,7 +167,8 @@ async def _show_vocab_page(target, user_id: int, page: int):
         text += "\n"
         for w in words:
             box_emoji = "✅" if w.box >= 4 else f"📦{w.box}"
-            text += f"  • {w.word} — {w.translation}  {box_emoji}\n"
+            tr = w.translation if w.translation else "—"
+            text += f"  • {w.word} — {tr}  {box_emoji}\n"
     else:
         text += "\nСловарь пуст.\n"
 
@@ -250,7 +251,14 @@ async def _send_quiz_card(target, state: FSMContext):
         return
 
     w = words[idx]
-    # Random direction
+
+    # Skip words without translation
+    if not w.get("translation", "").strip():
+        await state.update_data(quiz_idx=idx + 1)
+        await _send_quiz_card(target, state)
+        return
+
+    # Random direction, but only RU→EN if translation exists
     en_to_ru = random.random() > 0.5
 
     if en_to_ru:
