@@ -174,6 +174,8 @@ async def _show_vocab_page(target, user_id: int, page: int):
     rows = []
     if stats['due_today'] > 0:
         rows.append([InlineKeyboardButton(text=f"🔄 Повторить ({stats['due_today']})", callback_data="vocab:start_review")])
+    if stats['total'] > 0:
+        rows.append([InlineKeyboardButton(text="📝 Проверить себя", callback_data="vocab:quiz")])
     # Pagination
     if total_pages > 1:
         nav = []
@@ -198,6 +200,136 @@ async def cb_vocab_page(callback: CallbackQuery):
     page = int(callback.data.split(":")[-1])
     await callback.answer()
     await _show_vocab_page(callback.message, callback.from_user.id, page)
+
+
+# ─── Vocab Quiz (practice, no box change) ───
+class VocabQuizStates(StatesGroup):
+    answering = State()
+
+
+@router.callback_query(F.data == "vocab:quiz")
+async def cb_vocab_quiz(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    import random
+    async with async_session() as session:
+        result = await session.execute(
+            select(Vocabulary).where(Vocabulary.user_id == callback.from_user.id)
+        )
+        all_words = list(result.scalars().all())
+
+    if not all_words:
+        await callback.message.answer("Словарь пуст.")
+        return
+
+    random.shuffle(all_words)
+    quiz_words = all_words[:10]  # max 10 per quiz
+
+    quiz_data = [{"id": w.id, "word": w.word, "translation": w.translation} for w in quiz_words]
+
+    await state.set_state(VocabQuizStates.answering)
+    await state.update_data(
+        quiz_words=quiz_data, quiz_idx=0, quiz_correct=0, quiz_total=len(quiz_data)
+    )
+    await _send_quiz_card(callback.message, state)
+
+
+async def _send_quiz_card(target, state: FSMContext):
+    import random
+    data = await state.get_data()
+    words = data.get("quiz_words", [])
+    idx = data.get("quiz_idx", 0)
+
+    if idx >= len(words):
+        correct = data.get("quiz_correct", 0)
+        total = data.get("quiz_total", 0)
+        await state.clear()
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔁 Ещё раз", callback_data="vocab:quiz")],
+            [InlineKeyboardButton(text="◀️ Словарь", callback_data="progress:vocab")],
+        ])
+        await target.answer(f"📝 Результат: {correct}/{total}\n\nЭта проверка не влияет на прогресс карточек.", reply_markup=kb)
+        return
+
+    w = words[idx]
+    # Random direction
+    en_to_ru = random.random() > 0.5
+
+    if en_to_ru:
+        question = f"📝 {idx+1}/{len(words)}\n\n🔤 Что значит \"{w['word']}\"?\n\nНапиши перевод:"
+    else:
+        question = f"📝 {idx+1}/{len(words)}\n\n🇷🇺 Как по-английски:\n\n\"{w['translation']}\"?"
+
+    await state.update_data(quiz_en_to_ru=en_to_ru)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Не знаю", callback_data="vocab:quiz_skip")],
+        [InlineKeyboardButton(text="🏁 Закончить", callback_data="vocab:quiz_stop")],
+    ])
+    await target.answer(question, reply_markup=kb)
+
+
+@router.message(VocabQuizStates.answering)
+async def cb_vocab_quiz_answer(message: Message, state: FSMContext):
+    if not message.text:
+        return
+    data = await state.get_data()
+    words = data.get("quiz_words", [])
+    idx = data.get("quiz_idx", 0)
+    correct = data.get("quiz_correct", 0)
+    en_to_ru = data.get("quiz_en_to_ru", True)
+
+    if idx >= len(words):
+        return
+
+    w = words[idx]
+    user_answer = message.text.strip().lower()
+    correct_answer = w["translation"] if en_to_ru else w["word"]
+
+    # Flexible match
+    is_correct = (
+        user_answer in correct_answer.lower()
+        or correct_answer.lower() in user_answer
+        or user_answer == w["word"].lower()
+        or user_answer == w["translation"].lower()
+    )
+
+    if is_correct:
+        await message.answer(f"✅ Правильно! {w['word']} — {w['translation']}")
+        correct += 1
+    else:
+        await message.answer(f"❌ {w['word']} — {w['translation']}")
+
+    await state.update_data(quiz_idx=idx + 1, quiz_correct=correct)
+    await _send_quiz_card(message, state)
+
+
+@router.callback_query(F.data == "vocab:quiz_skip")
+async def cb_vocab_quiz_skip(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    words = data.get("quiz_words", [])
+    idx = data.get("quiz_idx", 0)
+    if idx < len(words):
+        w = words[idx]
+        await callback.message.answer(f"⏭ {w['word']} — {w['translation']}")
+    await state.update_data(quiz_idx=idx + 1)
+    await _send_quiz_card(callback.message, state)
+
+
+@router.callback_query(F.data == "vocab:quiz_stop")
+async def cb_vocab_quiz_stop(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    correct = data.get("quiz_correct", 0)
+    idx = data.get("quiz_idx", 0)
+    await state.clear()
+    await callback.answer()
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Словарь", callback_data="progress:vocab")],
+    ])
+    await callback.message.answer(f"📝 Результат: {correct}/{idx}", reply_markup=kb)
 
 
 class VocabFindStates(StatesGroup):
