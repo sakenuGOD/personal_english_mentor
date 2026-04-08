@@ -64,8 +64,8 @@ async def process_word(message: Message, state: FSMContext):
                 pass  # duplicate key — fine
 
     if not result:
-        await message.answer("⚠️ Сервис временно недоступен.")
         await state.clear()
+        await message.answer("⚠️ Попробуй ещё раз позже.", reply_markup=word_result_keyboard(word))
         return
 
     lines = []

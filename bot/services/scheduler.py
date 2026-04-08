@@ -342,7 +342,7 @@ async def _check_daily_checkup(bot, now: datetime):
             if not gpt:
                 continue
 
-            sep = "═" * 28
+            sep = "━" * 24
             top_patterns = gpt.get("top_patterns", [])
             overall = gpt.get("overall_assessment", {})
 

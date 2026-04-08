@@ -47,7 +47,7 @@ def phrase_keyboard():
 
 
 def format_phrase_message(phrase: dict) -> str:
-    sep = "=" * 30
+    sep = "━" * 24
     lines = [sep, "📖 Фраза дня", ""]
 
     lines.append(f'"{phrase["phrase"]}"')

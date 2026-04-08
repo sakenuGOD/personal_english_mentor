@@ -93,7 +93,7 @@ async def _process_voice_to_dm(bot: Bot, user_id: int, voice: Voice, chat_name: 
 
         result = await ask_groq(MEANING_SYSTEM, transcription)
 
-        sep = "=" * 30
+        sep = "━" * 24
         lines = [sep]
         if chat_name:
             lines.append(f"Чат {chat_name}")

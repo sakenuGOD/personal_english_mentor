@@ -45,8 +45,8 @@ async def process_meaning(message: Message, state: FSMContext):
     result = await ask_groq(prompt, message.text)
 
     if not result:
-        await message.answer("⚠️ Сервис временно недоступен.")
         await state.clear()
+        await message.answer("⚠️ Попробуй ещё раз позже.", reply_markup=meaning_result_keyboard())
         return
 
     lines = []

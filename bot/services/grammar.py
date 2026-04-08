@@ -88,7 +88,7 @@ def format_chat_correction(corrections: list[dict], corrected_full: str = "") ->
 
 def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> list[str]:
     """Format corrections into pages (list of strings). Each correction = 1 page."""
-    sep = "=" * 30
+    sep = "━" * 24
 
     # Page 1: compact overview
     p1 = [sep]

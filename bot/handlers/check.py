@@ -58,7 +58,7 @@ async def process_check(message: Message, state: FSMContext):
         await message.answer("✅ Всё правильно, звучит естественно!", reply_markup=check_result_keyboard())
         return
 
-    sep = "=" * 30
+    sep = "━" * 24
     lines = [sep, f'"{message.text}"', ""]
 
     if errors:

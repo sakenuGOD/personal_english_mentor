@@ -155,7 +155,7 @@ async def generate_weekly_insights(session: AsyncSession, user_id: int) -> str |
     gpt = await ask_groq(WEEKLY_INSIGHTS_SYSTEM, json.dumps(payload))
 
     # Build message
-    sep = "=" * 30
+    sep = "━" * 24
     lines = [sep, "📊 Инсайты недели", ""]
 
     # Error trend

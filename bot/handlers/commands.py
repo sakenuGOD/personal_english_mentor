@@ -40,19 +40,13 @@ async def cmd_start(message: Message, state: FSMContext):
         message.from_user.username,
         message.from_user.first_name,
     )
+    name = message.from_user.first_name or "друг"
     await message.answer(
-        "👋 English Buddy — AI-помощник для английского.\n\n"
-        "Что умею:\n"
-        "• Проверять сообщения в чатах и объяснять ошибки\n"
-        "• Переводить фразы с вариантами (casual/formal/slang)\n"
-        "• Объяснять сленг и что имел ввиду собеседник\n"
-        "• Тренировки и словарь с повторением\n"
-        "• Ежедневные задания и фразы дня\n\n"
-        "Просто напиши текст — переведу (RU↔EN).\n\n"
-        "📱 Подключи как Telegram Business-бота:\n"
-        "Настройки → Telegram Business → Чат-боты → @этот_бот\n"
-        "Бот будет проверять твои сообщения в чатах. Напиши ? на своё сообщение — проверит его.\n\n"
-        "/faq — подробная справка по всем кнопкам",
+        f"Hey, {name}! 👋\n\n"
+        "Я помогу тебе с английским прямо в Telegram.\n\n"
+        "Подключи меня как Business-бота — буду проверять твои сообщения в чатах и объяснять ошибки.\n\n"
+        "Настройки → Telegram Business → Чат-боты → выбери меня\n\n"
+        "Или просто используй кнопки ниже 👇",
         reply_markup=main_menu_keyboard(),
     )
 

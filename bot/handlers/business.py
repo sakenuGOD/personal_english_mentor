@@ -236,7 +236,7 @@ async def _explain_message(text: str, user_id: int, chat, bot: Bot):
         return
 
     chat_name = f"@{chat.username}" if chat.username else str(chat.id)
-    sep = "=" * 30
+    sep = "━" * 24
     lines = [sep, f"Чат {chat_name}", ""]
     lines.append(f'💬 "{text}"')
     lines.append("")
@@ -438,7 +438,7 @@ async def _full_check(
     # If corrections exist → corrected_full IS already the natural version, no need to repeat
     if native_tip and not corrections:
         try:
-            sep = "=" * 30
+            sep = "━" * 24
             await bot.send_message(
                 chat_id=user_id,
                 text=f"{sep}\n"
