@@ -10,7 +10,8 @@ from sqlalchemy import select, update
 from bot.db.database import async_session
 from bot.db.models import User, DailyMessageBuffer
 from bot.services.grammar import (
-    check_grammar, check_grammar_free, save_error, save_message,
+    check_grammar, check_grammar_free, detect_errors_free,
+    save_error, save_message,
     format_chat_correction, format_detailed_correction,
 )
 from bot.services.local_grammar import has_errors as local_has_errors
@@ -140,7 +141,7 @@ async def handle_business_message(message: Message, bot: Bot):
             await _full_check(reply_text, user_id, message.chat.id, m, bot,
                               message=message.reply_to_message,
                               business_connection_id=business_connection_id,
-                              reaction_check=True, use_free=True)
+                              reaction_check=True)
         else:
             # ── "?" on PARTNER's message → explain what they meant ──
             logger.info(f"Reply meaning check from user {user_id}: '{reply_text[:50]}'")
@@ -177,15 +178,57 @@ async def handle_business_message(message: Message, bot: Bot):
         session.add(DailyMessageBuffer(user_id=user_id, text=text))
         await session.commit()
 
-    # === LOCAL CHECK (free) ===
-    has_local = await local_has_errors(text)
+    # === STEP 1: Free LLM detects errors (every message) ===
+    from bot.services.free_llm import both_exhausted
+    detection = None
+    if not both_exhausted():
+        detection = await detect_errors_free(text, mode)
 
-    if not has_local:
-        # LanguageTool says OK → no API call, just log
+    if detection is None:
+        # Free APIs unavailable → fall back to LanguageTool + paid
+        has_local = await local_has_errors(text)
+        if not has_local:
+            async with async_session() as session:
+                await update_streak(session, user_id)
+                await save_message(session, user_id, message.chat.id, False, 0)
+                await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
+                await session.commit()
+            return
+        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+        return
+
+    has_errors = detection.get("has_errors", False)
+    constructions = detection.get("constructions", [])
+
+    if not has_errors:
+        # Free LLM says OK → log, no paid API call
         async with async_session() as session:
             await update_streak(session, user_id)
             await save_message(session, user_id, message.chat.id, False, 0)
-            await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
+            # Track grammar constructions
+            if constructions:
+                from bot.db.models import GrammarUsage
+                from datetime import datetime
+                for c in constructions:
+                    existing = await session.execute(
+                        select(GrammarUsage).where(
+                            GrammarUsage.user_id == user_id,
+                            GrammarUsage.construction == c,
+                        )
+                    )
+                    gu = existing.scalar_one_or_none()
+                    if gu:
+                        gu.times_used += 1
+                        gu.last_used = datetime.utcnow()
+                    else:
+                        session.add(GrammarUsage(
+                            user_id=user_id, construction=c,
+                            times_used=1, last_used=datetime.utcnow(),
+                        ))
+            is_complex = any(c in ["present_perfect", "past_perfect", "conditional_2",
+                                    "conditional_3", "passive_voice"] for c in constructions)
+            xp = XP_COMPLEX_NO_ERROR if is_complex else XP_NO_ERROR
+            await add_xp(session, user_id, xp, "message_no_error")
             await session.commit()
             achievements = await check_achievements(session, user_id)
         for ach in achievements:
@@ -195,8 +238,8 @@ async def handle_business_message(message: Message, bot: Bot):
                 logger.warning(f"Failed to send achievement: {e}")
         return
 
-    # === LOCAL FOUND ERRORS → try free API first, fall back to paid ===
-    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, use_free=True)
+    # === STEP 2: Free LLM found errors → paid API explains in detail ===
+    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
 
 
 async def _explain_message(text: str, user_id: int, chat, bot: Bot):
@@ -289,19 +332,9 @@ async def _full_check(
     bot: Bot, message: Message | None = None,
     business_connection_id: str | None = None,
     reaction_check: bool = False,
-    use_free: bool = False,
 ):
-    """Full GPT check — called for errors or reaction-triggered checks."""
-    result = None
-    if use_free:
-        result = await check_grammar_free(text, mode)
-        if result is None:
-            # Free APIs exhausted, check if we should notify user
-            from bot.services.free_llm import both_exhausted
-            if both_exhausted():
-                logger.info(f"Both free APIs exhausted, falling back to paid for user {user_id}")
-    if result is None:
-        result = await check_grammar(text, mode)
+    """Full paid GPT check — detailed explanation with rules + formulas."""
+    result = await check_grammar(text, mode)
     logger.info(f"Grammar check: has_errors={result.get('has_errors') if result else None}")
     if result is None:
         return
@@ -456,6 +489,6 @@ async def handle_reaction(event: MessageReactionUpdated, bot: Bot):
     mode = user.correction_mode if user else "balanced"
 
     logger.info(f"Reaction check from user {user_id}")
-    await _full_check(text, user_id, chat_id, mode, bot, reaction_check=True, use_free=True)
+    await _full_check(text, user_id, chat_id, mode, bot, reaction_check=True)
 
 

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.models import Error, Message, User
 from bot.services.groq_client import ask_groq
-from bot.utils.prompts import AUTOCORRECT_SYSTEM, AUTOCORRECT_USER
+from bot.utils.prompts import AUTOCORRECT_SYSTEM, AUTOCORRECT_USER, GRAMMAR_DETECT_SYSTEM, GRAMMAR_DETECT_USER
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,13 @@ async def check_grammar_free(text: str, mode: str = "balanced") -> dict | None:
     from bot.services.free_llm import ask_free_llm
     user_msg = AUTOCORRECT_USER.format(mode=mode, text=text)
     return await ask_free_llm(AUTOCORRECT_SYSTEM, user_msg)
+
+
+async def detect_errors_free(text: str, mode: str = "balanced") -> dict | None:
+    """Lightweight error detection via free API. Returns {has_errors, corrected_full, ...} or None."""
+    from bot.services.free_llm import ask_free_llm
+    user_msg = GRAMMAR_DETECT_USER.format(mode=mode, text=text)
+    return await ask_free_llm(GRAMMAR_DETECT_SYSTEM, user_msg)
 
 
 

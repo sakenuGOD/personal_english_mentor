@@ -83,6 +83,28 @@ If no errors and sounds natural: {"has_errors": false, "native_tip": null, "cons
 AUTOCORRECT_USER = """Mode: {mode}
 User's message: "{text}" """
 
+GRAMMAR_DETECT_SYSTEM = """You check English chat messages for grammar errors. Be quick and concise.
+
+Correction modes:
+- aggressive: catch everything (grammar, articles, prepositions, word order, punctuation, style)
+- balanced: ONLY real grammar mistakes that change meaning or are clearly wrong. Do NOT flag: capitalization, punctuation, informal spelling, chat abbreviations (u, ur, gonna, wanna), contractions without apostrophe (dont, cant, wont).
+
+IMPORTANT: This is casual chat. "hello how are you doing" = no errors. "i dont know" = no errors. "i goes to school" = error.
+
+Respond ONLY in valid JSON. No markdown.
+{
+  "has_errors": true,
+  "corrected_full": "The corrected sentence",
+  "error_count": 1,
+  "categories": ["tenses"],
+  "constructions": ["present_simple"]
+}
+
+If no errors: {"has_errors": false, "constructions": ["present_simple"]}"""
+
+GRAMMAR_DETECT_USER = """Mode: {mode}
+Message: "{text}" """
+
 TOPIC_CONTEXTS = {
     "general": "",
     "it": "Context: the user works in IT/programming. Prioritize tech vocabulary, programming terms, startup culture, dev team communication.",
