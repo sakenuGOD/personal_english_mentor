@@ -53,13 +53,14 @@ async def get_words_for_review(session: AsyncSession, user_id: int, limit: int =
     return list(result.scalars().all())
 
 
-async def review_word(session: AsyncSession, word_id: int, remembered: bool):
+async def review_word(session: AsyncSession, word_id: int, remembered: bool) -> str | None:
+    """Review a word. Returns word name if mastered (deleted), else None."""
     result = await session.execute(
         select(Vocabulary).where(Vocabulary.id == word_id)
     )
     vocab = result.scalar_one_or_none()
     if not vocab:
-        return
+        return None
 
     vocab.times_reviewed += 1
     if remembered:
@@ -68,9 +69,17 @@ async def review_word(session: AsyncSession, word_id: int, remembered: bool):
     else:
         vocab.box = 1
 
+    # Box 5 = mastered → auto-delete
+    if vocab.box >= 5:
+        word_name = vocab.word
+        await session.delete(vocab)
+        await session.commit()
+        return word_name
+
     interval = LEITNER_INTERVALS.get(vocab.box, 1)
     vocab.next_review = datetime.utcnow() + timedelta(days=interval)
     await session.commit()
+    return None
 
 
 async def get_all_words(session: AsyncSession, user_id: int, limit: int = 10, offset: int = 0) -> list[Vocabulary]:

@@ -160,10 +160,10 @@ async def cb_progress_back(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "progress:vocab")
 async def cb_progress_vocab(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await _show_vocab_page(callback.message, callback.from_user.id, 0)
+    await _show_vocab_page(callback, callback.from_user.id, 0)
 
 
-async def _show_vocab_page(target, user_id: int, page: int):
+async def _show_vocab_page(callback_or_msg, user_id: int, page: int):
     from bot.services.vocabulary import get_vocab_stats, get_all_words
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -213,14 +213,24 @@ async def _show_vocab_page(target, user_id: int, page: int):
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")])
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
-    await target.answer(text, reply_markup=kb)
+    # Edit existing message or send new
+    from aiogram.types import CallbackQuery as CQ
+    if isinstance(callback_or_msg, CQ):
+        try:
+            await callback_or_msg.message.edit_text(text, reply_markup=kb)
+            return
+        except Exception:
+            pass
+        await callback_or_msg.message.answer(text, reply_markup=kb)
+    else:
+        await callback_or_msg.answer(text, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("vocab:page:"))
 async def cb_vocab_page(callback: CallbackQuery):
     page = int(callback.data.split(":")[-1])
     await callback.answer()
-    await _show_vocab_page(callback.message, callback.from_user.id, page)
+    await _show_vocab_page(callback, callback.from_user.id, page)
 
 
 @router.callback_query(F.data.startswith("vocab:card:"))
@@ -236,7 +246,7 @@ async def cb_vocab_card(callback: CallbackQuery):
         await callback.message.answer("Слово не найдено.")
         return
 
-    box_labels = {0: "новое", 1: "1 день", 2: "3 дня", 3: "7 дней", 4: "14 дней ✅", 5: "30 дней ✅"}
+    box_labels = {0: "новое", 1: "1 день", 2: "3 дня", 3: "7 дней", 4: "14 дней ✅", 5: "выучено ✅"}
     box_label = box_labels.get(w.box, f"📦{w.box}")
     next_rev = w.next_review.strftime("%d.%m") if w.next_review else "—"
 
@@ -247,8 +257,7 @@ async def cb_vocab_card(callback: CallbackQuery):
     if w.example:
         lines.append(f"\n📌 {w.example}")
     lines.append(f"\n📦 Уровень: {box_label}")
-    lines.append(f"🔄 Следующий повтор: {next_rev}")
-    lines.append(f"📊 Повторений: {w.times_reviewed} (верно: {w.times_correct})")
+    lines.append(f"🔄 Повтор: {next_rev}  📊 {w.times_correct}/{w.times_reviewed}")
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -257,13 +266,16 @@ async def cb_vocab_card(callback: CallbackQuery):
             InlineKeyboardButton(text="◀️ Назад", callback_data="progress:vocab"),
         ],
     ])
-    await callback.message.answer("\n".join(lines), reply_markup=kb)
+    try:
+        await callback.message.edit_text("\n".join(lines), reply_markup=kb)
+    except Exception:
+        await callback.message.answer("\n".join(lines), reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("vocab:delete:"))
 async def cb_vocab_delete(callback: CallbackQuery):
     word_id = int(callback.data.split(":")[-1])
-    await callback.answer()
+    await callback.answer("🗑 Удалено")
 
     async with async_session() as session:
         result = await session.execute(select(Vocabulary).where(
@@ -273,9 +285,8 @@ async def cb_vocab_delete(callback: CallbackQuery):
         if w:
             await session.delete(w)
             await session.commit()
-            await callback.message.answer(f"🗑 «{w.word}» удалено.")
-        else:
-            await callback.message.answer("Слово не найдено.")
+    # Return to vocab list
+    await _show_vocab_page(callback, callback.from_user.id, 0)
 
 
 # ─── Vocab Quiz (practice, no box change) ───
@@ -1758,11 +1769,13 @@ async def cb_vocab_typed_answer(message: Message, state: FSMContext):
     is_correct = user_answer == correct_clean or correct_clean in user_answer or user_answer in correct_clean
 
     async with async_session() as session:
-        await review_word(session, word_id, is_correct)
+        mastered = await review_word(session, word_id, is_correct)
         if is_correct:
             await add_xp(session, user_id, XP_WORD_REMEMBERED, "word_remembered")
 
-    if is_correct:
+    if mastered:
+        feedback = f"🎉 «{mastered}» выучено! Удалено из словаря."
+    elif is_correct:
         feedback = f"✅ Правильно! +{XP_WORD_REMEMBERED} XP\n\n{word} — {translation}"
     else:
         feedback = f"❌ Не угадал.\n\n{word} — {translation}"
