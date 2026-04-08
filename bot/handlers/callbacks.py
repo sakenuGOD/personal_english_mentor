@@ -172,8 +172,6 @@ async def _show_vocab_page(target, user_id: int, page: int):
         text += "\nСловарь пуст.\n"
 
     rows = []
-    if stats['due_today'] > 0:
-        rows.append([InlineKeyboardButton(text=f"🔄 Повторить ({stats['due_today']})", callback_data="vocab:start_review")])
     if stats['total'] > 0:
         rows.append([InlineKeyboardButton(text="📝 Проверить себя", callback_data="vocab:quiz")])
     # Pagination
@@ -2327,7 +2325,16 @@ async def cb_vocab_start_review(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "vocab:remind_later")
 async def cb_vocab_remind_later(callback: CallbackQuery):
-    await callback.answer("Хорошо, напомню позже")
+    from datetime import timedelta
+    # Push all due words forward by 4 hours
+    async with async_session() as session:
+        from bot.services.vocabulary import get_words_for_review
+        due = await get_words_for_review(session, callback.from_user.id, limit=50)
+        now = __import__("datetime").datetime.utcnow()
+        for w in due:
+            w.next_review = now + timedelta(hours=4)
+        await session.commit()
+    await callback.answer("Ок, напомню через 4 часа")
     await callback.message.edit_reply_markup(reply_markup=None)
 
 

@@ -185,7 +185,7 @@ async def _check_vocab_reminder(bot):
     from bot.keyboards.inline import vocab_reminder_keyboard
 
     now = datetime.now(timezone.utc)
-    min_interval_hours = 8
+    min_interval_hours = 4
     cutoff = now.replace(tzinfo=None) - __import__("datetime").timedelta(hours=min_interval_hours)
 
     async with async_session() as session:
