@@ -181,8 +181,10 @@ async def _show_vocab_page(target, user_id: int, page: int):
         text += "\n"
         for w in words:
             box_emoji = "✅" if w.box >= 4 else f"📦{w.box}"
-            tr = w.translation if w.translation else "—"
-            text += f"  • {w.word} — {tr}  {box_emoji}\n"
+            tr = w.translation.split("—")[0].split("/")[0].strip() if w.translation else "—"
+            if len(tr) > 25:
+                tr = tr[:25] + "…"
+            text += f"  {w.word} — {tr} {box_emoji}\n"
     else:
         text += "\nСловарь пуст.\n"
 
