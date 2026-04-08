@@ -421,7 +421,7 @@ async def _full_check(
             try:
                 await bot.send_message(chat_id=user_id, text=pages[0], reply_markup=corr_kb(0, len(pages)))
             except Exception as e:
-            logger.error(f"Failed to send DM correction: {e}")
+                logger.error(f"Failed to send DM correction: {e}")
 
     # Native tip — ONLY when no grammar corrections found
     # If corrections exist → corrected_full IS already the natural version, no need to repeat
