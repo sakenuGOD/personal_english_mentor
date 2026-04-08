@@ -198,37 +198,13 @@ async def handle_business_message(message: Message, bot: Bot):
         return
 
     has_errors = detection.get("has_errors", False)
-    constructions = detection.get("constructions", [])
 
     if not has_errors:
         # Free LLM says OK → log, no paid API call
         async with async_session() as session:
             await update_streak(session, user_id)
             await save_message(session, user_id, message.chat.id, False, 0)
-            # Track grammar constructions
-            if constructions:
-                from bot.db.models import GrammarUsage
-                from datetime import datetime
-                for c in constructions:
-                    existing = await session.execute(
-                        select(GrammarUsage).where(
-                            GrammarUsage.user_id == user_id,
-                            GrammarUsage.construction == c,
-                        )
-                    )
-                    gu = existing.scalar_one_or_none()
-                    if gu:
-                        gu.times_used += 1
-                        gu.last_used = datetime.utcnow()
-                    else:
-                        session.add(GrammarUsage(
-                            user_id=user_id, construction=c,
-                            times_used=1, last_used=datetime.utcnow(),
-                        ))
-            is_complex = any(c in ["present_perfect", "past_perfect", "conditional_2",
-                                    "conditional_3", "passive_voice"] for c in constructions)
-            xp = XP_COMPLEX_NO_ERROR if is_complex else XP_NO_ERROR
-            await add_xp(session, user_id, xp, "message_no_error")
+            await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
             await session.commit()
             achievements = await check_achievements(session, user_id)
         for ach in achievements:

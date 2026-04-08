@@ -26,10 +26,17 @@ async def check_grammar_free(text: str, mode: str = "balanced") -> dict | None:
 
 
 async def detect_errors_free(text: str, mode: str = "balanced") -> dict | None:
-    """Lightweight error detection via free API. Returns {has_errors, corrected_full, ...} or None."""
+    """Lightweight error detection via free API. Returns {has_errors} or None."""
     from bot.services.free_llm import ask_free_llm
     user_msg = GRAMMAR_DETECT_USER.format(mode=mode, text=text)
-    return await ask_free_llm(GRAMMAR_DETECT_SYSTEM, user_msg)
+    result = await ask_free_llm(GRAMMAR_DETECT_SYSTEM, user_msg)
+    if result is None:
+        return None
+    # Normalize minimal keys: "e" → "has_errors", "c" → "categories"
+    return {
+        "has_errors": result.get("e", result.get("has_errors", False)),
+        "categories": result.get("c", result.get("categories", [])),
+    }
 
 
 

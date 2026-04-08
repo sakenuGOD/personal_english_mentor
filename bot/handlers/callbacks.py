@@ -146,33 +146,166 @@ async def cb_progress_back(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "progress:vocab")
 async def cb_progress_vocab(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    await _show_vocab_page(callback.message, callback.from_user.id, 0)
+
+
+async def _show_vocab_page(target, user_id: int, page: int):
     from bot.services.vocabulary import get_vocab_stats, get_all_words
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+    per_page = 10
     async with async_session() as session:
-        stats = await get_vocab_stats(session, callback.from_user.id)
-        words = await get_all_words(session, callback.from_user.id, limit=10)
+        stats = await get_vocab_stats(session, user_id)
+        words = await get_all_words(session, user_id, limit=per_page, offset=page * per_page)
 
-    text = f"📚 Словарь: {stats['total']} слов\n\n"
+    total_pages = max(1, (stats['total'] + per_page - 1) // per_page)
+
+    text = f"📚 Словарь: {stats['total']} слов\n"
     text += f"✅ Выучено: {stats['mastered']}  🔄 На повторение: {stats['due_today']}\n"
 
     if words:
-        text += "\n📖 Последние слова:\n"
+        text += "\n"
         for w in words:
             box_emoji = "✅" if w.box >= 4 else f"📦{w.box}"
             text += f"  • {w.word} — {w.translation}  {box_emoji}\n"
-        if stats['total'] > 10:
-            text += f"  ... и ещё {stats['total'] - 10}\n"
     else:
-        text += "\nСловарь пуст. Добавляй слова через 🤔 Что имел ввиду → ➕\n"
+        text += "\nСловарь пуст.\n"
 
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     rows = []
     if stats['due_today'] > 0:
         rows.append([InlineKeyboardButton(text=f"🔄 Повторить ({stats['due_today']})", callback_data="vocab:start_review")])
+    # Pagination
+    if total_pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="◀️", callback_data=f"vocab:page:{page-1}"))
+        nav.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton(text="▶️", callback_data=f"vocab:page:{page+1}"))
+        rows.append(nav)
+    rows.append([
+        InlineKeyboardButton(text="🎲 Рандомное слово", callback_data="vocab:random_word"),
+        InlineKeyboardButton(text="🔍 Найти слово", callback_data="vocab:find_word"),
+    ])
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="progress:back")])
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
-    await callback.message.answer(text, reply_markup=kb)
+    await target.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("vocab:page:"))
+async def cb_vocab_page(callback: CallbackQuery):
+    page = int(callback.data.split(":")[-1])
+    await callback.answer()
+    await _show_vocab_page(callback.message, callback.from_user.id, page)
+
+
+class VocabFindStates(StatesGroup):
+    waiting_description = State()
+
+
+@router.callback_query(F.data == "vocab:random_word")
+async def cb_random_word(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer("⏳ Подбираю слово...")
+
+    from bot.services.groq_client import ask_groq
+    result = await ask_groq(
+        "Generate one uncommon but useful English word. NOT basic words (like happy, big, fast). "
+        "Pick something intermediate/advanced that a non-native wouldn't know but natives use often "
+        "(e.g. petty, cringe, obnoxious, overwhelmed, relatable, audacity, gaslighting, procrastinate, sarcastic). "
+        "VARY each time — be random. Respond ONLY in valid JSON:\n"
+        '{"word":"the word","transcription":"/.../",'
+        '"translation":"перевод на русском",'
+        '"meaning":"объяснение значения на русском, 1-2 предложения, на ты",'
+        '"examples":["пример 1 на английском","пример 2"],'
+        '"usage_note":"когда и как использовать — на русском, 1 предложение"}',
+        "Generate a random interesting word."
+    )
+    if not result:
+        await callback.message.answer("⚠️ Не удалось.")
+        return
+
+    w = result.get("word", "")
+    lines = [
+        f"🎲 {w} {result.get('transcription', '')}",
+        f"📝 {result.get('translation', '')}",
+        "",
+        result.get("meaning", ""),
+    ]
+    examples = result.get("examples", [])
+    if examples:
+        lines.append("\n📖 Примеры:")
+        for ex in examples[:2]:
+            lines.append(f"  • {ex}")
+    note = result.get("usage_note")
+    if note:
+        lines.append(f"\n💡 {note}")
+
+    from bot.keyboards.inline import word_result_keyboard
+    await callback.message.answer("\n".join(lines), reply_markup=word_result_keyboard(w))
+
+
+@router.callback_query(F.data == "vocab:find_word")
+async def cb_find_word(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(VocabFindStates.waiting_description)
+    await callback.message.answer(
+        "🔍 Опиши слово или чувство — я найду английское слово.\n\n"
+        "Например:\n"
+        "  • человек который пытается всем угодить\n"
+        "  • чувство когда на тебя смотрят и ты замыкаешься\n"
+        "  • слово для мелкой мести\n"
+        "  • awkward (или любое англ. слово)"
+    )
+
+
+@router.message(VocabFindStates.waiting_description)
+async def cb_find_word_answer(message: Message, state: FSMContext):
+    if not message.text:
+        return
+    await state.clear()
+    await message.answer("🔍 Ищу...")
+
+    from bot.services.groq_client import ask_groq
+    result = await ask_groq(
+        "The user describes a feeling, situation, or type of person. Find the BEST English word or phrase for it. "
+        "If the input is already an English word — explain it. "
+        "Respond ONLY in valid JSON:\n"
+        '{"word":"the English word/phrase",'
+        '"transcription":"/.../",'
+        '"translation":"перевод на русский",'
+        '"meaning":"подробное объяснение на русском (2-3 предложения, на ты) — что именно это слово значит, в каких ситуациях используется",'
+        '"examples":["пример 1 на английском","пример 2","пример 3"],'
+        '"synonyms":["близкое слово 1","близкое слово 2"],'
+        '"usage_note":"когда использовать, нюансы — на русском"}',
+        message.text
+    )
+    if not result:
+        await message.answer("⚠️ Не удалось найти.")
+        return
+
+    w = result.get("word", "")
+    lines = [
+        f"🔍 {w} {result.get('transcription', '')}",
+        f"📝 {result.get('translation', '')}",
+        "",
+        result.get("meaning", ""),
+    ]
+    examples = result.get("examples", [])
+    if examples:
+        lines.append("\n📖 Примеры:")
+        for ex in examples[:3]:
+            lines.append(f"  • {ex}")
+    synonyms = result.get("synonyms", [])
+    if synonyms:
+        lines.append(f"\n🔤 Похожие: {', '.join(synonyms)}")
+    note = result.get("usage_note")
+    if note:
+        lines.append(f"\n💡 {note}")
+
+    from bot.keyboards.inline import word_result_keyboard
+    await message.answer("\n".join(lines), reply_markup=word_result_keyboard(w))
 
 
 @router.callback_query(F.data == "progress:mistakes")
