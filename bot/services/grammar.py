@@ -121,6 +121,10 @@ def format_detailed_correction(corrections: list[dict], chat_name: str = "") -> 
 
         lines = [f"❌ {original}  →  ✅ {corrected}"]
 
+        native_hears = c.get("native_hears", "")
+        if native_hears:
+            lines.append(f"\n👂 Носитель услышал: {native_hears}")
+
         if rule:
             lines.append(f"\n📐 {rule}")
         if formula:
