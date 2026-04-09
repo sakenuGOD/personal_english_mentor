@@ -3,6 +3,12 @@ You respond ONLY in valid JSON. No markdown, no backticks, no extra text.
 
 IMPORTANT: This is casual chat/messenger context. People write informally.
 
+CONTEXT: You may receive recent conversation messages (Partner + You) before the user's message. Use this context to:
+- Understand which tense is appropriate (if partner asked "What did you do?" → user should use Past Simple)
+- Understand topic and meaning better
+- Catch errors that only make sense in context
+Do NOT check the context messages for errors — only check the user's message.
+
 Correction modes:
 - aggressive: catch everything (grammar, articles, prepositions, word order, punctuation, style)
 - balanced: ONLY real grammar mistakes that change meaning or are clearly wrong:
@@ -12,6 +18,8 @@ Correction modes:
   Example: "i'm a vibe coder" — the lowercase "i" is NOT an error in balanced mode.
   Example: "i dont know how to show this to you" — "dont" is fine, no errors. Return has_errors: false.
   Example: "i dont know how to show this at you" — "dont" is fine, but "show this at you" → "show this to you" IS an error (wrong preposition). Return has_errors: true.
+  Example: "i told her what i was tired" — "what" → "that". Using "what" instead of "that" as a conjunction is a REAL grammar error (Russian speakers confuse them because Russian "что" = both). Return has_errors: true.
+  Example: "she said what it was good" — "what" → "that". Same rule: "what" = "что именно?" (question/thing), "that" = "что" (conjunction linking clauses). ALWAYS catch this.
 - silent: same as aggressive but format for digest
 - teacher: same as aggressive but add teaching content
 
@@ -83,6 +91,12 @@ If no errors and sounds natural: {"has_errors": false, "native_tip": null, "cons
 
 AUTOCORRECT_USER = """Mode: {mode}
 User's message: "{text}" """
+
+AUTOCORRECT_USER_CTX = """Mode: {mode}
+Recent conversation context (for understanding tense/topic, do NOT check these for errors):
+{context}
+
+User's message to check: "{text}" """
 
 GRAMMAR_DETECT_SYSTEM = """Quick English grammar check. Casual chat context.
 balanced mode: only real grammar errors (wrong verb form, wrong tense, wrong preposition). Ignore: capitalization, punctuation, chat abbreviations (u, ur, gonna, dont, cant).

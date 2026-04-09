@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 _msg_cache: dict[tuple, dict] = {}
 MAX_CACHE = 500
 
+# Per-chat message history for context: {chat_id: [(user_id, text), ...]}
+_chat_history: dict[int, list[tuple[int, str]]] = {}
+MAX_HISTORY = 5  # last N messages per chat
+MAX_HISTORY_CHATS = 200
+
 # Cache word breakdowns for inline save buttons: {user_id: [word_breakdown_items]}
 _explain_cache: dict[int, list[dict]] = {}
 MAX_EXPLAIN_CACHE = 200
@@ -67,6 +72,31 @@ def _cache_message(chat_id: int, message_id: int, text: str, user_id: int):
     _msg_cache[(chat_id, message_id)] = {"text": text, "user_id": user_id}
 
 
+def _add_to_history(chat_id: int, user_id: int, text: str, is_owner: bool):
+    """Add message to per-chat history for context."""
+    if len(_chat_history) > MAX_HISTORY_CHATS:
+        oldest = list(_chat_history.keys())[:MAX_HISTORY_CHATS // 2]
+        for k in oldest:
+            _chat_history.pop(k, None)
+    history = _chat_history.setdefault(chat_id, [])
+    history.append(("you" if is_owner else "partner", text))
+    if len(history) > MAX_HISTORY:
+        _chat_history[chat_id] = history[-MAX_HISTORY:]
+
+
+def _get_context(chat_id: int) -> str:
+    """Get recent chat history as context string (excluding the last message which is being checked)."""
+    history = _chat_history.get(chat_id, [])
+    if len(history) < 2:
+        return ""
+    # Last entry is the message being checked, return everything before it
+    lines = []
+    for role, text in history[:-1]:
+        label = "You" if role == "you" else "Partner"
+        lines.append(f"{label}: {text}")
+    return "\n".join(lines)
+
+
 @router.business_connection()
 async def handle_business_connection(event: BusinessConnection):
     """Save business_connection_id when user connects the bot."""
@@ -101,7 +131,15 @@ async def handle_business_message(message: Message, bot: Bot):
         )
         owner = owner_result.scalar_one_or_none()
 
-    if not owner or message.from_user.id != owner.id:
+    if not owner:
+        return
+
+    is_owner = message.from_user.id == owner.id
+
+    # Save ALL messages (both owner and partner) to chat history for context
+    _add_to_history(message.chat.id, message.from_user.id, text, is_owner)
+
+    if not is_owner:
         return
 
     user_id = message.from_user.id
@@ -141,7 +179,8 @@ async def handle_business_message(message: Message, bot: Bot):
             await _full_check(reply_text, user_id, message.chat.id, m, bot,
                               message=message.reply_to_message,
                               business_connection_id=business_connection_id,
-                              reaction_check=True)
+                              reaction_check=True,
+                              context=_get_context(message.chat.id))
         else:
             # ── "?" on PARTNER's message → explain what they meant ──
             logger.info(f"Reply meaning check from user {user_id}: '{reply_text[:50]}'")
@@ -186,7 +225,7 @@ async def handle_business_message(message: Message, bot: Bot):
                 await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
                 await session.commit()
             return
-        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id))
         return
 
     # === 4+ words: Free LLM detects errors ===
@@ -205,7 +244,7 @@ async def handle_business_message(message: Message, bot: Bot):
                 await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
                 await session.commit()
             return
-        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id))
         return
 
     has_errors = detection.get("has_errors", False)
@@ -226,7 +265,7 @@ async def handle_business_message(message: Message, bot: Bot):
         return
 
     # === STEP 2: Free LLM found errors → paid API explains in detail ===
-    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id)
+    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id))
 
 
 async def _explain_message(text: str, user_id: int, chat, bot: Bot):
@@ -319,9 +358,10 @@ async def _full_check(
     bot: Bot, message: Message | None = None,
     business_connection_id: str | None = None,
     reaction_check: bool = False,
+    context: str = "",
 ):
     """Full paid GPT check — detailed explanation with rules + formulas."""
-    result = await check_grammar(text, mode)
+    result = await check_grammar(text, mode, context=context)
     logger.info(f"Grammar check: has_errors={result.get('has_errors') if result else None}")
     if result is None:
         return
