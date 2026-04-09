@@ -206,11 +206,10 @@ async def _check_vocab_reminder(bot):
                 continue
 
             count = len(due_words)
-            word_preview = ", ".join(f'"{w.word}"' for w in due_words[:3])
+            word_label = "слово ждёт" if count == 1 else "слова ждут" if count < 5 else "слов ждут"
             text = (
                 f"📚 Пора повторить слова!\n\n"
-                f"У тебя {count} слов{'о' if count == 1 else 'а' if count < 5 else ''} ждут повторения:\n"
-                f"{word_preview}{'...' if count > 3 else ''}\n\n"
+                f"У тебя {count} {word_label} повторения.\n\n"
                 f"Проверим себя?"
             )
 
