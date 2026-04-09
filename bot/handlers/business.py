@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import defaultdict
 
 from aiogram import Router, F, Bot
@@ -28,10 +29,11 @@ logger = logging.getLogger(__name__)
 _msg_cache: dict[tuple, dict] = {}
 MAX_CACHE = 500
 
-# Per-chat message history for context: {chat_id: [(user_id, text), ...]}
-_chat_history: dict[int, list[tuple[int, str]]] = {}
-MAX_HISTORY = 5  # last N messages per chat
+# Per-chat message history for context: {chat_id: [(role, text, timestamp), ...]}
+_chat_history: dict[int, list[tuple[str, str, float]]] = {}
+MAX_HISTORY = 15  # store last N messages per chat
 MAX_HISTORY_CHATS = 200
+CONTEXT_GAP_SECONDS = 2 * 60 * 60  # 2 hours — messages older than this gap are irrelevant
 
 # Cache word breakdowns for inline save buttons: {user_id: [word_breakdown_items]}
 _explain_cache: dict[int, list[dict]] = {}
@@ -79,22 +81,47 @@ def _add_to_history(chat_id: int, user_id: int, text: str, is_owner: bool):
         for k in oldest:
             _chat_history.pop(k, None)
     history = _chat_history.setdefault(chat_id, [])
-    history.append(("you" if is_owner else "partner", text))
+    history.append(("you" if is_owner else "partner", text, time.time()))
     if len(history) > MAX_HISTORY:
         _chat_history[chat_id] = history[-MAX_HISTORY:]
 
 
-def _get_context(chat_id: int) -> str:
-    """Get recent chat history as context string (excluding the last message which is being checked)."""
+def _get_context(chat_id: int, reply_text: str = "") -> str:
+    """Build smart context from chat history.
+
+    - Cuts off at time gaps > 2 hours (new conversation session)
+    - If reply_text is provided, prepends it as the message being replied to
+    - Excludes the last entry (the message being checked)
+    """
     history = _chat_history.get(chat_id, [])
-    if len(history) < 2:
+    if len(history) < 2 and not reply_text:
         return ""
-    # Last entry is the message being checked, return everything before it
+
+    # Exclude the last message (being checked now)
+    prev = history[:-1] if history else []
+
+    # Walk backwards, cut at time gap > 2 hours
+    now = time.time()
+    relevant: list[tuple[str, str, float]] = []
+    for i in range(len(prev) - 1, -1, -1):
+        role, text, ts = prev[i]
+        # Gap between this message and the next one (or now)
+        next_ts = prev[i + 1][2] if i + 1 < len(prev) else now
+        if next_ts - ts > CONTEXT_GAP_SECONDS:
+            break
+        relevant.append((role, text, ts))
+    relevant.reverse()
+
     lines = []
-    for role, text in history[:-1]:
+    # If replying to a specific message, show it first
+    if reply_text:
+        lines.append(f"[replied to]: {reply_text}")
+
+    for role, text, _ in relevant:
         label = "You" if role == "you" else "Partner"
         lines.append(f"{label}: {text}")
-    return "\n".join(lines)
+
+    return "\n".join(lines) if lines else ""
 
 
 @router.business_connection()
@@ -187,6 +214,13 @@ async def handle_business_message(message: Message, bot: Bot):
             await _explain_message(reply_text, user_id, message.chat, bot)
         return
 
+    # Extract reply context if user is replying to a partner's message
+    reply_ctx = ""
+    if message.reply_to_message and message.reply_to_message.text:
+        reply_from = message.reply_to_message.from_user
+        if reply_from and reply_from.id != user_id:
+            reply_ctx = message.reply_to_message.text
+
     # Skip very short / non-English / common phrases
     if len(text) < 3:
         return
@@ -225,7 +259,7 @@ async def handle_business_message(message: Message, bot: Bot):
                 await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
                 await session.commit()
             return
-        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id))
+        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id, reply_ctx))
         return
 
     # === 4+ words: Free LLM detects errors ===
@@ -244,7 +278,7 @@ async def handle_business_message(message: Message, bot: Bot):
                 await add_xp(session, user_id, XP_NO_ERROR, "message_no_error")
                 await session.commit()
             return
-        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id))
+        await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id, reply_ctx))
         return
 
     has_errors = detection.get("has_errors", False)
@@ -265,7 +299,7 @@ async def handle_business_message(message: Message, bot: Bot):
         return
 
     # === STEP 2: Free LLM found errors → paid API explains in detail ===
-    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id))
+    await _full_check(text, user_id, message.chat.id, mode, bot, message, business_connection_id, context=_get_context(message.chat.id, reply_ctx))
 
 
 async def _explain_message(text: str, user_id: int, chat, bot: Bot):
