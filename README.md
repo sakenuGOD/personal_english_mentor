@@ -160,9 +160,11 @@ bot/
 │   ├── meaning.py           # Phrase/slang explanation
 │   ├── roleplay.py          # Scenario dialogues with voice + grading
 │   ├── workout.py           # Mistake-based exercises, level test, translation challenge
+│   ├── voice.py             # Voice message transcription + analysis
 │   ├── translate.py         # Auto-translate RU↔EN
 │   ├── callbacks.py         # Inline buttons, vocab review, daily challenge, topic test
 │   └── inline_query.py      # Inline mode
+├── middlewares/             # Auth middleware
 ├── keyboards/
 │   └── inline.py            # All keyboards
 ├── services/
@@ -172,6 +174,8 @@ bot/
 │   ├── gamification.py      # XP, streaks, levels, achievements
 │   ├── vocabulary.py        # Vocabulary CRUD + Leitner spaced repetition
 │   ├── phrase_of_day.py     # Daily idiom generation + caching
+│   ├── curriculum.py        # Lesson plan / weak-category tracking
+│   ├── free_llm.py          # Zero-cost fallback for cheap calls
 │   ├── scheduler.py         # Daily phrase, daily challenge, vocab reminders, weekly insights
 │   ├── stats.py             # User statistics
 │   └── digest.py            # Weekly insights generation
